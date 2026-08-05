@@ -12,6 +12,7 @@ import {
 const FEED_URL = "https://feed.lolesports.com/livestats/v1";
 const FEATURED_MATCH_ID = "116889604984157253";
 const LIVE_REFRESH_INTERVAL_MS = 3_000;
+const EVENT_TOAST_LIFETIME_MS = 7_000;
 
 type TeamResult = { gameWins: number; outcome: "win" | "loss" | null };
 type MatchTeam = {
@@ -97,6 +98,21 @@ type DetailsPayload = {
     rfc460Timestamp: string;
     participants: DetailParticipant[];
   }>;
+};
+type EventToastKind =
+  | "kill"
+  | "tower"
+  | "baron"
+  | "dragon"
+  | "inhibitor"
+  | "finished";
+type EventToast = {
+  id: number;
+  gameId: string;
+  side: "blue" | "red" | "neutral";
+  kind: EventToastKind;
+  title: string;
+  detail: string;
 };
 
 function dateInShanghai() {
@@ -253,6 +269,19 @@ function objectiveLabel(name: string) {
   )[name] ?? name;
 }
 
+function eventKindLabel(kind: EventToastKind) {
+  return (
+    {
+      kill: "KILL",
+      tower: "TOWER",
+      baron: "BARON",
+      dragon: "DRAGON",
+      inhibitor: "INHIBITOR",
+      finished: "FINAL",
+    } as Record<EventToastKind, string>
+  )[kind];
+}
+
 export default function Home() {
   const [date, setDate] = useState(dateInShanghai);
   const [events, setEvents] = useState<MatchEvent[]>([]);
@@ -267,12 +296,136 @@ export default function Home() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<string>();
+  const [eventToasts, setEventToasts] = useState<EventToast[]>([]);
   const refreshInFlight = useRef(false);
   const scannedMatchId = useRef("");
+  const previousEventFrames = useRef<Record<string, WindowFrame>>({});
+  const toastSequence = useRef(0);
+  const toastTimers = useRef<Map<number, number>>(new Map());
 
   const selectedMatch = useMemo(
     () => events.find((event) => event.id === selectedMatchId),
     [events, selectedMatchId],
+  );
+
+  const dismissEventToast = useCallback((id: number) => {
+    const timer = toastTimers.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    toastTimers.current.delete(id);
+    setEventToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  const clearEventToasts = useCallback(() => {
+    toastTimers.current.forEach((timer) => window.clearTimeout(timer));
+    toastTimers.current.clear();
+    setEventToasts([]);
+  }, []);
+
+  const addEventToast = useCallback((toast: Omit<EventToast, "id">) => {
+    const id = ++toastSequence.current;
+    setEventToasts((current) => [...current, { ...toast, id }].slice(-5));
+    const timer = window.setTimeout(() => {
+      setEventToasts((current) =>
+        current.filter((currentToast) => currentToast.id !== id),
+      );
+      toastTimers.current.delete(id);
+    }, EVENT_TOAST_LIFETIME_MS);
+    toastTimers.current.set(id, timer);
+  }, []);
+
+  const inspectEventFrame = useCallback(
+    (gameId: string, payload: WindowPayload) => {
+      const next = payload.frames.at(-1);
+      if (!next) return;
+      const previous = previousEventFrames.current[gameId];
+      previousEventFrames.current[gameId] = next;
+      if (
+        !previous ||
+        new Date(next.rfc460Timestamp).getTime() <=
+          new Date(previous.rfc460Timestamp).getTime()
+      ) {
+        return;
+      }
+
+      const frameTime = `数据帧 ${formatTimestamp(next.rfc460Timestamp)}`;
+      const inspectSide = (
+        side: "blue" | "red",
+        before: TeamFrame,
+        after: TeamFrame,
+      ) => {
+        const kills = after.totalKills - before.totalKills;
+        if (kills > 0) {
+          addEventToast({
+            gameId,
+            side,
+            kind: "kill",
+            title: kills === 1 ? "拿到一次击杀" : `连续拿到 ${kills} 次击杀`,
+            detail: `总击杀 ${after.totalKills} · ${frameTime}`,
+          });
+        }
+
+        const towers = after.towers - before.towers;
+        if (towers > 0) {
+          addEventToast({
+            gameId,
+            side,
+            kind: "tower",
+            title: towers === 1 ? "摧毁一座防御塔" : `摧毁 ${towers} 座防御塔`,
+            detail: `累计推塔 ${after.towers} · ${frameTime}`,
+          });
+        }
+
+        const barons = after.barons - before.barons;
+        if (barons > 0) {
+          addEventToast({
+            gameId,
+            side,
+            kind: "baron",
+            title: barons === 1 ? "拿下纳什男爵" : `连续拿下 ${barons} 条男爵`,
+            detail: `累计男爵 ${after.barons} · ${frameTime}`,
+          });
+        }
+
+        after.dragons.slice(before.dragons.length).forEach((dragon) => {
+          const label = objectiveLabel(dragon);
+          addEventToast({
+            gameId,
+            side,
+            kind: "dragon",
+            title: `拿下${label}龙`,
+            detail: `累计地图龙 ${after.dragons.length} · ${frameTime}`,
+          });
+        });
+
+        const inhibitors = after.inhibitors - before.inhibitors;
+        if (inhibitors > 0) {
+          addEventToast({
+            gameId,
+            side,
+            kind: "inhibitor",
+            title:
+              inhibitors === 1
+                ? "摧毁一座召唤水晶"
+                : `摧毁 ${inhibitors} 座召唤水晶`,
+            detail: `累计水晶 ${after.inhibitors} · ${frameTime}`,
+          });
+        }
+      };
+
+      inspectSide("blue", previous.blueTeam, next.blueTeam);
+      inspectSide("red", previous.redTeam, next.redTeam);
+
+      if (previous.gameState !== "finished" && next.gameState === "finished") {
+        addEventToast({
+          gameId,
+          side: "neutral",
+          kind: "finished",
+          title: "本局数据已结束",
+          detail: frameTime,
+        });
+      }
+    },
+    [addEventToast],
   );
 
   const loadEvents = useCallback(async (targetDate: string) => {
@@ -327,27 +480,20 @@ export default function Home() {
         const { windowPayload, detailsPayload } =
           await fetchLatestTelemetry(gameId);
         if (windowPayload?.frames?.length) {
+          inspectEventFrame(gameId, windowPayload);
           setWindowData(windowPayload);
           setDetailsData(detailsPayload);
           setLastUpdated(new Date().toISOString());
           setError("");
         }
       } catch (caught) {
-        try {
-          const initial = await fetchInitialWindow(gameId);
-          if (initial?.frames?.length) {
-            setWindowData(initial);
-            setLastUpdated(new Date().toISOString());
-          }
-        } catch {
-          setError(caught instanceof Error ? caught.message : "实时数据刷新失败");
-        }
+        setError(caught instanceof Error ? caught.message : "实时数据刷新失败");
       } finally {
         refreshInFlight.current = false;
         setRefreshing(false);
       }
     },
-    [],
+    [inspectEventFrame],
   );
 
   const selectGame = useCallback(
@@ -356,6 +502,8 @@ export default function Home() {
       setWindowData(null);
       setDetailsData(null);
       setLastUpdated(undefined);
+      delete previousEventFrames.current[gameId];
+      clearEventToasts();
       setError("");
       setRefreshing(true);
       try {
@@ -377,7 +525,7 @@ export default function Home() {
         setRefreshing(false);
       }
     },
-    [refreshGame],
+    [clearEventToasts, refreshGame],
   );
 
   const scanLatestGame = useCallback(
@@ -433,10 +581,12 @@ export default function Home() {
       setWindowData(null);
       setDetailsData(null);
       setLastUpdated(undefined);
+      previousEventFrames.current = {};
+      clearEventToasts();
       void scanLatestGame(selectedMatch);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [selectedMatch, scanLatestGame]);
+  }, [clearEventToasts, selectedMatch, scanLatestGame]);
 
   useEffect(() => {
     if (!autoRefresh || !selectedGameId) return;
@@ -451,6 +601,14 @@ export default function Home() {
     const interval = window.setInterval(() => void loadEvents(date), 60_000);
     return () => window.clearInterval(interval);
   }, [autoRefresh, date, loadEvents]);
+
+  useEffect(
+    () => () => {
+      toastTimers.current.forEach((timer) => window.clearTimeout(timer));
+      toastTimers.current.clear();
+    },
+    [],
+  );
 
   const frame = windowData?.frames.at(-1);
   const detailsFrame = useMemo(() => {
@@ -570,6 +728,50 @@ export default function Home() {
     <main className="app-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
+
+      <section
+        aria-atomic="false"
+        aria-label="比赛事件通知"
+        aria-live="polite"
+        className="event-toast-region"
+      >
+        {eventToasts
+          .filter((toast) => toast.gameId === selectedGameId)
+          .map((toast) => {
+            const teamLabel =
+              toast.side === "blue"
+                ? blueTeam?.code ?? "蓝方"
+                : toast.side === "red"
+                  ? redTeam?.code ?? "红方"
+                  : "比赛";
+            return (
+              <article
+                className={`event-toast ${toast.side} ${toast.kind}`}
+                key={toast.id}
+                role="status"
+              >
+                <span className="event-toast-kind">
+                  {eventKindLabel(toast.kind)}
+                </span>
+                <div className="event-toast-copy">
+                  <strong>
+                    <span>{teamLabel}</span>
+                    {toast.title}
+                  </strong>
+                  <p>{toast.detail}</p>
+                </div>
+                <button
+                  aria-label="关闭事件通知"
+                  className="event-toast-close"
+                  onClick={() => dismissEventToast(toast.id)}
+                  type="button"
+                >
+                  ×
+                </button>
+              </article>
+            );
+          })}
+      </section>
 
       <header className="topbar">
         <div className="brand">
