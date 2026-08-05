@@ -11,6 +11,7 @@ import {
 
 const FEED_URL = "https://feed.lolesports.com/livestats/v1";
 const FEATURED_MATCH_ID = "116889604984157253";
+const LIVE_REFRESH_INTERVAL_MS = 3_000;
 
 type TeamResult = { gameWins: number; outcome: "win" | "loss" | null };
 type MatchTeam = {
@@ -441,7 +442,7 @@ export default function Home() {
     if (!autoRefresh || !selectedGameId) return;
     const interval = window.setInterval(() => {
       void refreshGame(selectedGameId, true);
-    }, 10_000);
+    }, LIVE_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [autoRefresh, refreshGame, selectedGameId]);
 
@@ -586,7 +587,7 @@ export default function Home() {
             type="button"
           >
             <span className="pulse-dot" />
-            {autoRefresh ? "10 秒自动刷新" : "自动刷新已暂停"}
+            {autoRefresh ? "3 秒自动刷新" : "自动刷新已暂停"}
           </button>
           <span className="last-sync">
             最后同步 <strong>{formatTimestamp(lastUpdated)}</strong>
