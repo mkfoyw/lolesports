@@ -27,6 +27,8 @@ test("server-renders the Rift Live dashboard shell", async () => {
   assert.match(html, /RIFT LIVE/);
   assert.match(html, /LoL Esports 实时数据台/);
   assert.match(html, /扫描最新一局/);
+  assert.match(html, /同屏比赛数量/);
+  assert.match(html, />4<\/strong><span>场<\/span>/);
   assert.match(html, /比赛事件通知/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
 });

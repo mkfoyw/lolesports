@@ -114,6 +114,7 @@ type EventToast = {
   title: string;
   detail: string;
 };
+type ViewMode = 1 | 2 | 4;
 
 function dateInShanghai() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -190,6 +191,28 @@ function recentStartingTime(secondsAgo: number) {
   return date.toISOString();
 }
 
+function preferredMatchIds(
+  matches: MatchEvent[],
+  count: number,
+  selectedId = "",
+  current: string[] = [],
+) {
+  const now = Date.now();
+  const ranked = [...matches].sort((left, right) => {
+    const leftLive = left.state === "inProgress" ? 0 : 1;
+    const rightLive = right.state === "inProgress" ? 0 : 1;
+    if (leftLive !== rightLive) return leftLive - rightLive;
+    return (
+      Math.abs(new Date(left.startTime).getTime() - now) -
+      Math.abs(new Date(right.startTime).getTime() - now)
+    );
+  });
+  return [...current, selectedId, ...ranked.map((match) => match.id)]
+    .filter((id, index, all) => id && all.indexOf(id) === index)
+    .filter((id) => matches.some((match) => match.id === id))
+    .slice(0, count);
+}
+
 async function readJson<T>(response: Response): Promise<T | null> {
   if (response.status === 204) return null;
   if (!response.ok) {
@@ -255,6 +278,21 @@ function roleLabel(role: string) {
   )[role] ?? role;
 }
 
+function normalizedRole(role: string) {
+  return (
+    {
+      top: "top",
+      jungle: "jungle",
+      mid: "mid",
+      middle: "mid",
+      bottom: "bottom",
+      support: "support",
+    } as Record<string, string>
+  )[role] ?? role;
+}
+
+const ROLE_ORDER = ["top", "jungle", "mid", "bottom", "support"];
+
 function objectiveLabel(name: string) {
   return (
     {
@@ -285,6 +323,9 @@ function eventKindLabel(kind: EventToastKind) {
 export default function Home() {
   const [date, setDate] = useState(dateInShanghai);
   const [events, setEvents] = useState<MatchEvent[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>(1);
+  const [multiMatchIds, setMultiMatchIds] = useState<string[]>([]);
+  const [multiRefreshTick, setMultiRefreshTick] = useState(0);
   const [selectedMatchId, setSelectedMatchId] = useState("");
   const [selectedGameId, setSelectedGameId] = useState("");
   const [windowData, setWindowData] = useState<WindowPayload | null>(null);
@@ -306,6 +347,36 @@ export default function Home() {
   const selectedMatch = useMemo(
     () => events.find((event) => event.id === selectedMatchId),
     [events, selectedMatchId],
+  );
+
+  const changeViewMode = useCallback(
+    (nextMode: ViewMode) => {
+      setViewMode(nextMode);
+      if (nextMode > 1) {
+        setMultiMatchIds((current) =>
+          preferredMatchIds(events, nextMode, selectedMatchId, current),
+        );
+      }
+    },
+    [events, selectedMatchId],
+  );
+
+  const selectMultiMatch = useCallback(
+    (slot: number, matchId: string) => {
+      setMultiMatchIds((current) => {
+        const next = preferredMatchIds(events, viewMode, selectedMatchId, current);
+        const existingSlot = next.indexOf(matchId);
+        if (existingSlot >= 0 && existingSlot !== slot) {
+          const previous = next[slot];
+          next[slot] = matchId;
+          next[existingSlot] = previous;
+        } else {
+          next[slot] = matchId;
+        }
+        return next;
+      });
+    },
+    [events, selectedMatchId, viewMode],
   );
 
   const dismissEventToast = useCallback((id: number) => {
@@ -568,6 +639,16 @@ export default function Home() {
   }, [date, loadEvents]);
 
   useEffect(() => {
+    if (viewMode === 1) return;
+    const timeout = window.setTimeout(() => {
+      setMultiMatchIds((current) =>
+        preferredMatchIds(events, viewMode, selectedMatchId, current),
+      );
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [events, selectedMatchId, viewMode]);
+
+  useEffect(() => {
     if (!selectedMatch) {
       scannedMatchId.current = "";
       return;
@@ -782,6 +863,20 @@ export default function Home() {
           </div>
         </div>
         <div className="topbar-actions">
+          <div className="view-switcher" aria-label="同屏比赛数量" role="group">
+            {([1, 2, 4] as ViewMode[]).map((mode) => (
+              <button
+                aria-pressed={viewMode === mode}
+                className={viewMode === mode ? "active" : ""}
+                key={mode}
+                onClick={() => changeViewMode(mode)}
+                type="button"
+              >
+                <strong>{mode}</strong>
+                <span>场</span>
+              </button>
+            ))}
+          </div>
           <button
             aria-pressed={autoRefresh}
             className={`refresh-toggle ${autoRefresh ? "active" : ""}`}
@@ -792,7 +887,11 @@ export default function Home() {
             {autoRefresh ? "3 秒自动刷新" : "自动刷新已暂停"}
           </button>
           <span className="last-sync">
-            最后同步 <strong>{formatTimestamp(lastUpdated)}</strong>
+            {viewMode === 1 ? (
+              <>最后同步 <strong>{formatTimestamp(lastUpdated)}</strong></>
+            ) : (
+              <>多场独立同步</>
+            )}
           </span>
         </div>
       </header>
@@ -812,32 +911,52 @@ export default function Home() {
             →
           </button>
         </div>
-        <label className="match-select">
-          <span>选择比赛</span>
-          <select
-            disabled={scheduleLoading || events.length === 0}
-            onChange={(event) => setSelectedMatchId(event.target.value)}
-            value={selectedMatchId}
-          >
-            {events.length === 0 && <option>当天没有可用比赛</option>}
-            {events.map((event) => (
-              <option key={event.id} value={event.id}>
-                {formatStartTime(event.startTime)} · {event.matchTeams.map((team) => team.code).join(" vs ")} · {event.league.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="scan-button"
-          disabled={!selectedMatch || refreshing}
-          onClick={() => selectedMatch && void scanLatestGame(selectedMatch)}
-          type="button"
-        >
-          {refreshing ? "正在同步…" : "扫描最新一局"}
-        </button>
+        {viewMode === 1 ? (
+          <>
+            <label className="match-select">
+              <span>选择比赛</span>
+              <select
+                disabled={scheduleLoading || events.length === 0}
+                onChange={(event) => setSelectedMatchId(event.target.value)}
+                value={selectedMatchId}
+              >
+                {events.length === 0 && <option>当天没有可用比赛</option>}
+                {events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {formatStartTime(event.startTime)} · {event.matchTeams.map((team) => team.code).join(" vs ")} · {event.league.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="scan-button"
+              disabled={!selectedMatch || refreshing}
+              onClick={() => selectedMatch && void scanLatestGame(selectedMatch)}
+              type="button"
+            >
+              {refreshing ? "正在同步…" : "扫描最新一局"}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="multi-view-summary">
+              <span>MULTI VIEW</span>
+              <strong>{viewMode === 2 ? "双场并行" : "四场全景"}</strong>
+              <small>每场独立读取最新对局与五路经济差</small>
+            </div>
+            <button
+              className="scan-button"
+              disabled={scheduleLoading || multiMatchIds.length === 0}
+              onClick={() => setMultiRefreshTick((current) => current + 1)}
+              type="button"
+            >
+              同步全部比赛
+            </button>
+          </>
+        )}
       </section>
 
-      {selectedMatch && (
+      {viewMode === 1 && selectedMatch && (
         <section className="match-hero">
           <div className="match-context">
             <span>{selectedMatch.league.name}</span>
@@ -909,7 +1028,16 @@ export default function Home() {
 
       {error && <div className="notice">{error}</div>}
 
-      {frame && selectedMatch ? (
+      {viewMode > 1 ? (
+        <MultiMatchBoard
+          autoRefresh={autoRefresh}
+          events={events}
+          matchIds={multiMatchIds}
+          onSelectMatch={selectMultiMatch}
+          refreshTick={multiRefreshTick}
+          slots={viewMode}
+        />
+      ) : frame && selectedMatch ? (
         <>
           <section className="objective-grid" aria-label="地图资源">
             <div className="objective-card blue-objectives">
@@ -1020,5 +1148,319 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <strong>{value}</strong>
       <span>{label}</span>
     </div>
+  );
+}
+
+function MultiMatchBoard({
+  autoRefresh,
+  events,
+  matchIds,
+  onSelectMatch,
+  refreshTick,
+  slots,
+}: {
+  autoRefresh: boolean;
+  events: MatchEvent[];
+  matchIds: string[];
+  onSelectMatch: (slot: number, matchId: string) => void;
+  refreshTick: number;
+  slots: 2 | 4;
+}) {
+  return (
+    <section
+      aria-label={`${slots} 场比赛同屏数据`}
+      className={`multi-match-grid slots-${slots}`}
+    >
+      {Array.from({ length: slots }, (_, slot) => {
+        const match = events.find((event) => event.id === matchIds[slot]);
+        return (
+          <div className="multi-match-slot" key={`${slot}-${match?.id ?? "empty"}`}>
+            <label className="multi-match-select">
+              <span>比赛 {slot + 1}</span>
+              <select
+                aria-label={`选择第 ${slot + 1} 场比赛`}
+                disabled={events.length === 0}
+                onChange={(event) => onSelectMatch(slot, event.target.value)}
+                value={match?.id ?? ""}
+              >
+                {!match && <option value="">暂无可选比赛</option>}
+                {events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {formatStartTime(event.startTime)} · {event.matchTeams.map((team) => team.code).join(" vs ")} · {event.league.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {match ? (
+              <MultiMatchCard
+                autoRefresh={autoRefresh}
+                match={match}
+                refreshTick={refreshTick}
+              />
+            ) : (
+              <div className="multi-empty">
+                <strong>等待赛事</strong>
+                <span>当天赛事不足 {slots} 场时，这里会保持空闲。</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function MultiMatchCard({
+  autoRefresh,
+  match,
+  refreshTick,
+}: {
+  autoRefresh: boolean;
+  match: MatchEvent;
+  refreshTick: number;
+}) {
+  const [windowData, setWindowData] = useState<WindowPayload | null>(null);
+  const [selectedGameId, setSelectedGameId] = useState("");
+  const [gameStart, setGameStart] = useState("");
+  const [lastUpdated, setLastUpdated] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const requestSequence = useRef(0);
+  const refreshInFlight = useRef(false);
+
+  const refresh = useCallback(async (gameId: string) => {
+    if (!gameId || refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    try {
+      const { windowPayload } = await fetchLatestTelemetry(gameId);
+      if (windowPayload?.frames.length) {
+        setWindowData(windowPayload);
+        setLastUpdated(new Date().toISOString());
+        setMessage("");
+      }
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "实时数据刷新失败");
+    } finally {
+      refreshInFlight.current = false;
+    }
+  }, []);
+
+  const scanLatest = useCallback(async () => {
+    const sequence = ++requestSequence.current;
+    setLoading(true);
+    setMessage("");
+    setWindowData(null);
+    setSelectedGameId("");
+    try {
+      for (const game of [...match.match.games].reverse()) {
+        try {
+          const payload = await fetchInitialWindow(game.id);
+          if (!payload?.frames.length) continue;
+          if (requestSequence.current !== sequence) return;
+          setSelectedGameId(game.id);
+          setGameStart(payload.frames[0].rfc460Timestamp);
+          setWindowData(payload);
+          setLastUpdated(new Date().toISOString());
+          setLoading(false);
+          void refresh(game.id);
+          return;
+        } catch {
+          continue;
+        }
+      }
+      if (requestSequence.current === sequence) {
+        setMessage("等待开局数据");
+      }
+    } finally {
+      if (requestSequence.current === sequence) setLoading(false);
+    }
+  }, [match.match.games, refresh]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => void scanLatest(), 0);
+    return () => {
+      window.clearTimeout(timeout);
+      requestSequence.current += 1;
+    };
+  }, [scanLatest, refreshTick]);
+
+  useEffect(() => {
+    if (!autoRefresh || !selectedGameId) return;
+    const interval = window.setInterval(
+      () => void refresh(selectedGameId),
+      LIVE_REFRESH_INTERVAL_MS,
+    );
+    return () => window.clearInterval(interval);
+  }, [autoRefresh, refresh, selectedGameId]);
+
+  const frame = windowData?.frames.at(-1);
+  const blueMetadata = windowData?.gameMetadata.blueTeamMetadata;
+  const redMetadata = windowData?.gameMetadata.redTeamMetadata;
+  const blueTeam = match.matchTeams.find(
+    (team) => rawTeamId(team) === blueMetadata?.esportsTeamId,
+  ) ?? match.matchTeams[0];
+  const redTeam = match.matchTeams.find(
+    (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
+  ) ?? match.matchTeams[1];
+  const selectedGame = match.match.games.find((game) => game.id === selectedGameId);
+  const totalDelta = frame
+    ? frame.blueTeam.totalGold - frame.redTeam.totalGold
+    : 0;
+  const totalLeader = totalDelta === 0
+    ? "经济持平"
+    : totalDelta > 0
+      ? `${blueTeam?.code ?? "蓝方"} +${compactNumber(Math.abs(totalDelta))}`
+      : `${redTeam?.code ?? "红方"} +${compactNumber(Math.abs(totalDelta))}`;
+  const status = frame?.gameState === "finished"
+    ? "本局结束"
+    : frame
+      ? "LIVE"
+      : match.state === "inProgress"
+        ? "连接中"
+        : "未开局";
+
+  return (
+    <article className="multi-match-card">
+      <header className="multi-card-context">
+        <span>{match.league.name}</span>
+        <strong>{formatStartTime(match.startTime)}</strong>
+        <span>BO{match.match.strategy.count}</span>
+      </header>
+
+      <div className="multi-scoreboard">
+        <div className="multi-team blue">
+          {blueTeam?.image && (
+            <img alt="" src={normalizeImage(blueTeam.image)} />
+          )}
+          <div>
+            <strong>{blueTeam?.code ?? "TBD"}</strong>
+            <span>{compactNumber(frame?.blueTeam.totalGold)}</span>
+          </div>
+        </div>
+        <div className="multi-score-center">
+          <span className={`status-badge ${status === "LIVE" ? "live" : ""}`}>
+            {status}
+          </span>
+          <div>
+            <strong>{frame?.blueTeam.totalKills ?? "–"}</strong>
+            <span>:</span>
+            <strong>{frame?.redTeam.totalKills ?? "–"}</strong>
+          </div>
+          <time>{formatGameClock(gameStart, frame?.rfc460Timestamp)}</time>
+          <small>第 {selectedGame?.number ?? 1} 局</small>
+        </div>
+        <div className="multi-team red">
+          <div>
+            <strong>{redTeam?.code ?? "TBD"}</strong>
+            <span>{compactNumber(frame?.redTeam.totalGold)}</span>
+          </div>
+          {redTeam?.image && (
+            <img alt="" src={normalizeImage(redTeam.image)} />
+          )}
+        </div>
+      </div>
+
+      {frame ? (
+        <>
+          <div className="multi-objectives">
+            <div>
+              <span>塔</span><strong>{frame.blueTeam.towers}</strong>
+              <span>龙</span><strong>{frame.blueTeam.dragons.length}</strong>
+              <span>男爵</span><strong>{frame.blueTeam.barons}</strong>
+            </div>
+            <div className={totalDelta >= 0 ? "blue-lead" : "red-lead"}>
+              <span>总经济差</span>
+              <strong>{totalLeader}</strong>
+            </div>
+            <div>
+              <strong>{frame.redTeam.towers}</strong><span>塔</span>
+              <strong>{frame.redTeam.dragons.length}</strong><span>龙</span>
+              <strong>{frame.redTeam.barons}</strong><span>男爵</span>
+            </div>
+          </div>
+          <RoleGoldTable
+            blueCode={blueTeam?.code ?? "蓝方"}
+            blueFrame={frame.blueTeam}
+            blueMetadata={blueMetadata}
+            redCode={redTeam?.code ?? "红方"}
+            redFrame={frame.redTeam}
+            redMetadata={redMetadata}
+          />
+        </>
+      ) : (
+        <div className="multi-card-waiting">
+          <span className={loading ? "loading-dot" : ""} />
+          <strong>{loading ? "正在寻找最新对局" : message || "等待开局数据"}</strong>
+          <small>开局后自动显示五路经济差</small>
+        </div>
+      )}
+
+      <div className="multi-card-footer">
+        <span>数据帧 {formatTimestamp(frame?.rfc460Timestamp)}</span>
+        <span>{autoRefresh ? "3 秒刷新" : "已暂停"} · {formatTimestamp(lastUpdated)}</span>
+      </div>
+    </article>
+  );
+}
+
+function RoleGoldTable({
+  blueCode,
+  blueFrame,
+  blueMetadata,
+  redCode,
+  redFrame,
+  redMetadata,
+}: {
+  blueCode: string;
+  blueFrame: TeamFrame;
+  blueMetadata?: TeamMetadata;
+  redCode: string;
+  redFrame: TeamFrame;
+  redMetadata?: TeamMetadata;
+}) {
+  return (
+    <section className="role-gold-table" aria-label="对应位置经济差">
+      <header>
+        <span>{blueCode}</span>
+        <strong>对应位置经济差</strong>
+        <span>{redCode}</span>
+      </header>
+      {ROLE_ORDER.map((role) => {
+        const bluePlayer = blueMetadata?.participantMetadata.find(
+          (player) => normalizedRole(player.role) === role,
+        );
+        const redPlayer = redMetadata?.participantMetadata.find(
+          (player) => normalizedRole(player.role) === role,
+        );
+        const blueLive = blueFrame.participants.find(
+          (participant) => participant.participantId === bluePlayer?.participantId,
+        );
+        const redLive = redFrame.participants.find(
+          (participant) => participant.participantId === redPlayer?.participantId,
+        );
+        const delta = (blueLive?.totalGold ?? 0) - (redLive?.totalGold ?? 0);
+        const leader = delta === 0
+          ? "持平"
+          : delta > 0
+            ? `${blueCode} +${compactNumber(Math.abs(delta))}`
+            : `${redCode} +${compactNumber(Math.abs(delta))}`;
+        return (
+          <div className="role-gold-row" key={role}>
+            <div className="role-player blue">
+              <strong>{bluePlayer?.summonerName ?? "—"}</strong>
+              <span>{compactNumber(blueLive?.totalGold)}</span>
+            </div>
+            <span className="role-label">{roleLabel(role)}</span>
+            <strong className={delta > 0 ? "blue-lead" : delta < 0 ? "red-lead" : ""}>
+              {leader}
+            </strong>
+            <div className="role-player red">
+              <span>{compactNumber(redLive?.totalGold)}</span>
+              <strong>{redPlayer?.summonerName ?? "—"}</strong>
+            </div>
+          </div>
+        );
+      })}
+    </section>
   );
 }
