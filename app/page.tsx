@@ -170,6 +170,11 @@ function compactNumber(value = 0) {
   return String(value);
 }
 
+function formatGoldDelta(value: number) {
+  if (value === 0) return "0";
+  return `${value > 0 ? "+" : "−"}${Math.abs(value).toLocaleString("en-US")}`;
+}
+
 function normalizeImage(value?: string | null) {
   return value?.replace(/^http:\/\//, "https://") ?? "";
 }
@@ -339,6 +344,7 @@ export default function Home() {
   const [lastUpdated, setLastUpdated] = useState<string>();
   const [eventToasts, setEventToasts] = useState<EventToast[]>([]);
   const refreshInFlight = useRef(false);
+  const viewModeChosen = useRef(false);
   const scannedMatchId = useRef("");
   const previousEventFrames = useRef<Record<string, WindowFrame>>({});
   const toastSequence = useRef(0);
@@ -351,6 +357,7 @@ export default function Home() {
 
   const changeViewMode = useCallback(
     (nextMode: ViewMode) => {
+      viewModeChosen.current = true;
       setViewMode(nextMode);
       if (nextMode > 1) {
         setMultiMatchIds((current) =>
@@ -518,6 +525,12 @@ export default function Home() {
             new Date(left.startTime).getTime() - new Date(right.startTime).getTime(),
         );
       setEvents(matches);
+      if (!viewModeChosen.current) {
+        const liveCount = matches.filter(
+          (match) => match.state === "inProgress",
+        ).length;
+        if (liveCount >= 2) setViewMode(liveCount >= 3 ? 4 : 2);
+      }
       setSelectedMatchId((current) => {
         if (matches.some((match) => match.id === current)) return current;
         const saved = window.localStorage.getItem("rift-live-match");
@@ -692,6 +705,7 @@ export default function Home() {
   );
 
   const frame = windowData?.frames.at(-1);
+  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const detailsFrame = useMemo(() => {
     if (!detailsData?.frames.length || !frame) return undefined;
     const target = new Date(frame.rfc460Timestamp).getTime();
@@ -702,7 +716,6 @@ export default function Home() {
         : nearest,
     );
   }, [detailsData, frame]);
-  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const selectedGame = selectedMatch?.match.games.find(
     (game) => game.id === selectedGameId,
   );
@@ -743,10 +756,23 @@ export default function Home() {
     teamFrame?: TeamFrame,
   ) => {
     if (!metadata || !teamFrame) return null;
+    const opposingMetadata = side === "blue" ? redMetadata : blueMetadata;
+    const opposingFrame = side === "blue" ? frame?.redTeam : frame?.blueTeam;
     return metadata.participantMetadata.map((player) => {
       const live = teamFrame.participants.find(
         (participant) => participant.participantId === player.participantId,
       );
+      const opposingPlayer = opposingMetadata?.participantMetadata.find(
+        (candidate) => normalizedRole(candidate.role) === normalizedRole(player.role),
+      );
+      const opposingLive = opposingFrame?.participants.find(
+        (participant) => participant.participantId === opposingPlayer?.participantId,
+      );
+      const playerGold = live?.totalGold ?? 0;
+      const hasMatchupGold = Boolean(live && opposingLive);
+      const goldDelta = hasMatchupGold
+        ? playerGold - (opposingLive?.totalGold ?? 0)
+        : 0;
       const details = detailsFrame?.participants.find(
         (participant) => participant.participantId === player.participantId,
       );
@@ -784,6 +810,13 @@ export default function Home() {
           <div className="player-stat gold">
             <strong>{compactNumber(live?.totalGold ?? details?.totalGoldEarned)}</strong>
             <span>经济</span>
+          </div>
+          <div
+            className={`player-stat matchup-delta ${goldDelta > 0 ? "positive" : goldDelta < 0 ? "negative" : ""}`}
+            title={`相对 ${opposingPlayer?.summonerName ?? "对位选手"} 的经济差`}
+          >
+            <strong>{hasMatchupGold ? formatGoldDelta(goldDelta) : "—"}</strong>
+            <span>对位经济差</span>
           </div>
           <div className="items" aria-label={`${player.summonerName} 装备`}>
             {(details?.items ?? [])
@@ -1294,6 +1327,7 @@ function MultiMatchCard({
   }, [autoRefresh, refresh, selectedGameId]);
 
   const frame = windowData?.frames.at(-1);
+  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const blueMetadata = windowData?.gameMetadata.blueTeamMetadata;
   const redMetadata = windowData?.gameMetadata.redTeamMetadata;
   const blueTeam = match.matchTeams.find(
@@ -1382,6 +1416,7 @@ function MultiMatchCard({
             blueCode={blueTeam?.code ?? "蓝方"}
             blueFrame={frame.blueTeam}
             blueMetadata={blueMetadata}
+            patch={patch}
             redCode={redTeam?.code ?? "红方"}
             redFrame={frame.redTeam}
             redMetadata={redMetadata}
@@ -1407,6 +1442,7 @@ function RoleGoldTable({
   blueCode,
   blueFrame,
   blueMetadata,
+  patch,
   redCode,
   redFrame,
   redMetadata,
@@ -1414,6 +1450,7 @@ function RoleGoldTable({
   blueCode: string;
   blueFrame: TeamFrame;
   blueMetadata?: TeamMetadata;
+  patch: string;
   redCode: string;
   redFrame: TeamFrame;
   redMetadata?: TeamMetadata;
@@ -1438,25 +1475,50 @@ function RoleGoldTable({
         const redLive = redFrame.participants.find(
           (participant) => participant.participantId === redPlayer?.participantId,
         );
-        const delta = (blueLive?.totalGold ?? 0) - (redLive?.totalGold ?? 0);
-        const leader = delta === 0
-          ? "持平"
-          : delta > 0
-            ? `${blueCode} +${compactNumber(Math.abs(delta))}`
-            : `${redCode} +${compactNumber(Math.abs(delta))}`;
+        const hasMatchupGold = Boolean(blueLive && redLive);
+        const delta = hasMatchupGold
+          ? (blueLive?.totalGold ?? 0) - (redLive?.totalGold ?? 0)
+          : 0;
+        const leader = !hasMatchupGold
+          ? "等待数据"
+          : delta === 0
+            ? "持平"
+            : delta > 0
+              ? `${blueCode} ${formatGoldDelta(delta)}`
+              : `${redCode} ${formatGoldDelta(Math.abs(delta))}`;
         return (
           <div className="role-gold-row" key={role}>
             <div className="role-player blue">
-              <strong>{bluePlayer?.summonerName ?? "—"}</strong>
-              <span>{compactNumber(blueLive?.totalGold)}</span>
+              {bluePlayer && (
+                <img
+                  alt={bluePlayer.championId}
+                  src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${bluePlayer.championId}.png`}
+                />
+              )}
+              <div>
+                <strong>{bluePlayer?.summonerName ?? "—"}</strong>
+                <span>
+                  {blueLive ? `${blueLive.kills}/${blueLive.deaths}/${blueLive.assists} · ${blueLive.creepScore} CS · ${compactNumber(blueLive.totalGold)}` : "等待数据"}
+                </span>
+              </div>
             </div>
             <span className="role-label">{roleLabel(role)}</span>
             <strong className={delta > 0 ? "blue-lead" : delta < 0 ? "red-lead" : ""}>
               {leader}
             </strong>
             <div className="role-player red">
-              <span>{compactNumber(redLive?.totalGold)}</span>
-              <strong>{redPlayer?.summonerName ?? "—"}</strong>
+              <div>
+                <strong>{redPlayer?.summonerName ?? "—"}</strong>
+                <span>
+                  {redLive ? `${compactNumber(redLive.totalGold)} · ${redLive.creepScore} CS · ${redLive.kills}/${redLive.deaths}/${redLive.assists}` : "等待数据"}
+                </span>
+              </div>
+              {redPlayer && (
+                <img
+                  alt={redPlayer.championId}
+                  src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${redPlayer.championId}.png`}
+                />
+              )}
             </div>
           </div>
         );

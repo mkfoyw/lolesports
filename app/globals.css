@@ -947,7 +947,7 @@ footer {
   border-top: 1px solid rgba(255, 255, 255, 0.055);
   display: grid;
   gap: 15px;
-  grid-template-columns: 48px minmax(120px, 1fr) 92px 52px 60px minmax(154px, 0.8fr);
+  grid-template-columns: 48px minmax(120px, 1fr) 92px 52px 60px 86px minmax(140px, 0.75fr);
   min-height: 67px;
   padding: 8px 20px;
   position: relative;
@@ -1067,6 +1067,22 @@ footer {
 
 .player-stat.gold strong {
   color: var(--gold);
+}
+
+.player-stat.matchup-delta strong {
+  color: #aab4c2;
+}
+
+.player-stat.matchup-delta.positive strong {
+  color: var(--green);
+}
+
+.player-stat.matchup-delta.negative strong {
+  color: var(--red);
+}
+
+.player-stat.matchup-delta span {
+  white-space: nowrap;
 }
 
 .items {
@@ -1351,7 +1367,7 @@ footer {
 .role-gold-row {
   align-items: center;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px 92px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 42px 98px minmax(0, 1fr);
 }
 
 .role-gold-table > header {
@@ -1374,19 +1390,34 @@ footer {
 
 .role-gold-row {
   border-top: 1px solid rgba(255, 255, 255, 0.05);
-  min-height: 32px;
+  min-height: 43px;
   padding: 3px 14px;
 }
 
 .role-player {
-  align-items: baseline;
+  align-items: center;
   display: flex;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
 .role-player.red {
   justify-content: flex-end;
+  text-align: right;
+}
+
+.role-player img {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  height: 30px;
+  object-fit: cover;
+  width: 30px;
+}
+
+.role-player > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .role-player strong {
@@ -1397,9 +1428,13 @@ footer {
 }
 
 .role-player span {
-  color: var(--gold);
+  color: var(--muted);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 7px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .role-label {
@@ -1490,7 +1525,16 @@ footer {
 }
 
 .slots-4 .role-gold-row {
-  min-height: 25px;
+  min-height: 32px;
+}
+
+.slots-4 .role-player img {
+  height: 24px;
+  width: 24px;
+}
+
+.slots-4 .role-player span {
+  display: none;
 }
 
 .slots-4 .multi-card-footer {
@@ -1629,7 +1673,7 @@ footer p {
   }
 
   .player-row {
-    grid-template-columns: 44px minmax(100px, 1fr) 85px 45px 55px;
+    grid-template-columns: 44px minmax(100px, 1fr) 85px 45px 55px 78px;
   }
 
   .items {
@@ -1814,7 +1858,7 @@ footer p {
 
   .player-row {
     gap: 9px;
-    grid-template-columns: 42px minmax(84px, 1fr) 78px 42px;
+    grid-template-columns: 42px minmax(84px, 1fr) 72px 42px 76px;
     padding: 8px 10px;
   }
 
