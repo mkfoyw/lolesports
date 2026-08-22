@@ -170,6 +170,11 @@ function compactNumber(value = 0) {
   return String(value);
 }
 
+function formatGoldDifference(value: number) {
+  if (value === 0) return "0";
+  return `${value > 0 ? "+" : "−"}${Math.abs(value).toLocaleString("en-US")}`;
+}
+
 function normalizeImage(value?: string | null) {
   return value?.replace(/^http:\/\//, "https://") ?? "";
 }
@@ -1019,23 +1024,38 @@ export default function Home() {
           <section className="players-panel">
             <header>
               <div>
-                <span>MATCHUPS</span>
-                <h2>选手对位数据</h2>
+                <span>PLAYERS</span>
+                <h2>选手实时状态</h2>
               </div>
               <p>
                 数据帧 {formatTimestamp(frame.rfc460Timestamp)} · 版本 {patch}
               </p>
             </header>
-            <PlayerMatchupTable
-              blueCode={blueTeam?.code ?? "蓝方"}
-              blueFrame={frame.blueTeam}
-              blueMetadata={blueMetadata}
-              detailsFrame={detailsFrame}
-              patch={patch}
-              redCode={redTeam?.code ?? "红方"}
-              redFrame={frame.redTeam}
-              redMetadata={redMetadata}
-            />
+            <div className="single-rosters">
+              <TeamRoster
+                code={blueTeam?.code ?? "蓝方"}
+                detailsFrame={detailsFrame}
+                metadata={blueMetadata}
+                opposingFrame={frame.redTeam}
+                opposingMetadata={redMetadata}
+                patch={patch}
+                side="blue"
+                teamFrame={frame.blueTeam}
+                teamName={blueTeam?.name ?? "蓝方"}
+              />
+              <div className="roster-separator" />
+              <TeamRoster
+                code={redTeam?.code ?? "红方"}
+                detailsFrame={detailsFrame}
+                metadata={redMetadata}
+                opposingFrame={frame.blueTeam}
+                opposingMetadata={blueMetadata}
+                patch={patch}
+                side="red"
+                teamFrame={frame.redTeam}
+                teamName={redTeam?.name ?? "红方"}
+              />
+            </div>
           </section>
         </>
       ) : (
@@ -1111,6 +1131,7 @@ function MultiMatchBoard({
             {match ? (
               <MultiMatchCard
                 autoRefresh={autoRefresh}
+                layout={slots === 2 ? "roster" : "compact"}
                 match={match}
                 refreshTick={refreshTick}
               />
@@ -1129,14 +1150,17 @@ function MultiMatchBoard({
 
 function MultiMatchCard({
   autoRefresh,
+  layout,
   match,
   refreshTick,
 }: {
   autoRefresh: boolean;
+  layout: "roster" | "compact";
   match: MatchEvent;
   refreshTick: number;
 }) {
   const [windowData, setWindowData] = useState<WindowPayload | null>(null);
+  const [detailsData, setDetailsData] = useState<DetailsPayload | null>(null);
   const [selectedGameId, setSelectedGameId] = useState("");
   const [gameStart, setGameStart] = useState("");
   const [lastUpdated, setLastUpdated] = useState("");
@@ -1154,9 +1178,10 @@ function MultiMatchCard({
     if (!gameId || refreshInFlight.current) return;
     refreshInFlight.current = true;
     try {
-      const { windowPayload } = await fetchLatestTelemetry(gameId);
+      const { windowPayload, detailsPayload } = await fetchLatestTelemetry(gameId);
       if (windowPayload?.frames.length) {
         setWindowData(windowPayload);
+        setDetailsData(detailsPayload);
         setLastUpdated(new Date().toISOString());
         setMessage("");
       }
@@ -1173,6 +1198,7 @@ function MultiMatchCard({
       setLoading(true);
       setMessage("");
       setWindowData(null);
+      setDetailsData(null);
       setSelectedGameId(game.id);
       try {
         const payload = await fetchInitialWindow(game.id);
@@ -1201,6 +1227,7 @@ function MultiMatchCard({
     setLoading(true);
     setMessage("");
     setWindowData(null);
+    setDetailsData(null);
     setSelectedGameId("");
     try {
       for (const game of [...gamesRef.current].reverse()) {
@@ -1247,6 +1274,16 @@ function MultiMatchCard({
 
   const frame = windowData?.frames.at(-1);
   const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
+  const detailsFrame = useMemo(() => {
+    if (!detailsData?.frames.length || !frame) return undefined;
+    const target = new Date(frame.rfc460Timestamp).getTime();
+    return detailsData.frames.reduce((nearest, candidate) =>
+      Math.abs(new Date(candidate.rfc460Timestamp).getTime() - target) <
+      Math.abs(new Date(nearest.rfc460Timestamp).getTime() - target)
+        ? candidate
+        : nearest,
+    );
+  }, [detailsData, frame]);
   const blueMetadata = windowData?.gameMetadata.blueTeamMetadata;
   const redMetadata = windowData?.gameMetadata.redTeamMetadata;
   const blueTeam = match.matchTeams.find(
@@ -1357,16 +1394,44 @@ function MultiMatchCard({
               <strong>{frame.redTeam.barons}</strong><span>男爵</span>
             </div>
           </div>
-          <PlayerMatchupTable
-            blueCode={blueTeam?.code ?? "蓝方"}
-            blueFrame={frame.blueTeam}
-            blueMetadata={blueMetadata}
-            compact
-            patch={patch}
-            redCode={redTeam?.code ?? "红方"}
-            redFrame={frame.redTeam}
-            redMetadata={redMetadata}
-          />
+          {layout === "roster" ? (
+            <div className="multi-rosters">
+              <TeamRoster
+                code={blueTeam?.code ?? "蓝方"}
+                detailsFrame={detailsFrame}
+                metadata={blueMetadata}
+                opposingFrame={frame.redTeam}
+                opposingMetadata={redMetadata}
+                patch={patch}
+                side="blue"
+                teamFrame={frame.blueTeam}
+                teamName={blueTeam?.name ?? "蓝方"}
+              />
+              <div className="roster-separator" />
+              <TeamRoster
+                code={redTeam?.code ?? "红方"}
+                detailsFrame={detailsFrame}
+                metadata={redMetadata}
+                opposingFrame={frame.blueTeam}
+                opposingMetadata={blueMetadata}
+                patch={patch}
+                side="red"
+                teamFrame={frame.redTeam}
+                teamName={redTeam?.name ?? "红方"}
+              />
+            </div>
+          ) : (
+            <PlayerMatchupTable
+              blueCode={blueTeam?.code ?? "蓝方"}
+              blueFrame={frame.blueTeam}
+              blueMetadata={blueMetadata}
+              compact
+              patch={patch}
+              redCode={redTeam?.code ?? "红方"}
+              redFrame={frame.redTeam}
+              redMetadata={redMetadata}
+            />
+          )}
         </>
       ) : (
         <div className="multi-card-waiting">
@@ -1381,6 +1446,120 @@ function MultiMatchCard({
         <span>{autoRefresh ? "3 秒刷新" : "已暂停"} · {formatTimestamp(lastUpdated)}</span>
       </div>
     </article>
+  );
+}
+
+function TeamRoster({
+  code,
+  detailsFrame,
+  metadata,
+  opposingFrame,
+  opposingMetadata,
+  patch,
+  side,
+  teamFrame,
+  teamName,
+}: {
+  code: string;
+  detailsFrame?: DetailsPayload["frames"][number];
+  metadata?: TeamMetadata;
+  opposingFrame: TeamFrame;
+  opposingMetadata?: TeamMetadata;
+  patch: string;
+  side: "blue" | "red";
+  teamFrame: TeamFrame;
+  teamName: string;
+}) {
+  const players = metadata?.participantMetadata ?? [];
+
+  return (
+    <section className={`team-roster ${side}-roster`}>
+      <div className="roster-title">
+        <strong>{teamName}</strong>
+        <span>{code}</span>
+      </div>
+      {players.map((player) => {
+        const live = teamFrame.participants.find(
+          (participant) => participant.participantId === player.participantId,
+        );
+        const opposingPlayer = opposingMetadata?.participantMetadata.find(
+          (candidate) =>
+            normalizedRole(candidate.role) === normalizedRole(player.role),
+        );
+        const opposingLive = opposingFrame.participants.find(
+          (participant) =>
+            participant.participantId === opposingPlayer?.participantId,
+        );
+        const details = detailsFrame?.participants.find(
+          (participant) => participant.participantId === player.participantId,
+        );
+        const items = (details?.items ?? [])
+          .filter((item) => item > 0)
+          .slice(0, 6);
+        const health = live?.maxHealth
+          ? Math.max(0, Math.min(100, (live.currentHealth / live.maxHealth) * 100))
+          : 0;
+        const hasGoldDifference = Boolean(live && opposingLive);
+        const goldDifference = hasGoldDifference
+          ? (live?.totalGold ?? 0) - (opposingLive?.totalGold ?? 0)
+          : 0;
+        const displayName = player.summonerName.replace(`${code} `, "");
+
+        return (
+          <article className={`player-row ${side}`} key={player.participantId}>
+            <div className="champion-wrap">
+              <img
+                alt={player.championId}
+                className="champion"
+                src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${player.championId}.png`}
+              />
+              <span className="level">{live?.level ?? 1}</span>
+            </div>
+            <div className="player-identity">
+              <strong>{displayName}</strong>
+              <span>{roleLabel(player.role)}</span>
+              <div className="health-track" aria-label={`${displayName} 生命值`}>
+                <span style={{ width: `${health}%` }} />
+              </div>
+            </div>
+            <div className="kda-block">
+              <strong>
+                {live?.kills ?? "—"}<span>/</span>{live?.deaths ?? "—"}<span>/</span>{live?.assists ?? "—"}
+              </strong>
+              <span>K / D / A</span>
+            </div>
+            <div className="player-stat">
+              <strong>{live?.creepScore ?? "—"}</strong>
+              <span>补刀</span>
+            </div>
+            <div className="player-stat gold">
+              <strong>{live ? compactNumber(live.totalGold) : "—"}</strong>
+              <span>经济</span>
+            </div>
+            <div
+              className={`player-stat matchup-delta ${
+                goldDifference > 0 ? "positive" : goldDifference < 0 ? "negative" : ""
+              }`}
+            >
+              <strong>
+                {hasGoldDifference ? formatGoldDifference(goldDifference) : "—"}
+              </strong>
+              <span>对位经济差</span>
+            </div>
+            <div className="items" aria-label={`${displayName} 装备`}>
+              {items.map((item, index) => (
+                <img
+                  alt={`装备 ${item}`}
+                  key={`${item}-${index}`}
+                  src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${item}.png`}
+                />
+              ))}
+              {items.length === 0 && <span className="items-empty">装备同步中</span>}
+            </div>
+          </article>
+        );
+      })}
+    </section>
   );
 }
 

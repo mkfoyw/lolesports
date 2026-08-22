@@ -57,7 +57,7 @@ input:focus-visible {
 .app-shell {
   min-height: 100vh;
   overflow: hidden;
-  padding: 0 clamp(12px, 1.15vw, 28px);
+  padding: 0;
   position: relative;
   width: 100%;
 }
@@ -108,7 +108,7 @@ input:focus-visible {
   gap: 10px;
   pointer-events: none;
   position: fixed;
-  right: clamp(12px, 1.15vw, 28px);
+  right: 12px;
   top: 96px;
   width: min(360px, calc(100vw - 32px));
   z-index: 50;
@@ -246,6 +246,8 @@ footer {
   display: flex;
   justify-content: space-between;
   min-height: 82px;
+  padding-left: 18px;
+  padding-right: 18px;
 }
 
 .brand {
@@ -402,6 +404,25 @@ footer {
   gap: 14px;
   grid-template-columns: auto minmax(280px, 1fr) auto;
   padding: 24px 0 18px;
+}
+
+.control-deck,
+.multi-match-grid,
+.match-hero,
+.objective-grid,
+.dragon-line,
+.players-panel,
+.waiting-panel,
+.notice,
+.app-shell > footer {
+  border-left-width: 0;
+  border-right-width: 0;
+  border-radius: 0;
+}
+
+.control-deck {
+  padding-left: 18px;
+  padding-right: 18px;
 }
 
 .date-control {
@@ -1097,6 +1118,42 @@ footer {
   background: linear-gradient(90deg, var(--blue), rgba(255,255,255,.11) 43%, rgba(255,255,255,.11) 57%, var(--red));
   height: 1px;
   opacity: 0.55;
+}
+
+.multi-rosters {
+  background: rgba(4, 8, 14, 0.16);
+}
+
+.slots-2 .multi-rosters .roster-title {
+  padding: 10px 12px 7px;
+}
+
+.slots-2 .multi-rosters .player-row {
+  gap: 8px;
+  grid-template-columns: 38px minmax(92px, 1fr) 72px 40px 54px 76px minmax(104px, 0.75fr);
+  min-height: 54px;
+  padding: 6px 12px;
+}
+
+.slots-2 .multi-rosters .champion-wrap,
+.slots-2 .multi-rosters .champion {
+  height: 36px;
+  width: 36px;
+}
+
+.slots-2 .multi-rosters .player-identity strong,
+.slots-2 .multi-rosters .kda-block strong,
+.slots-2 .multi-rosters .player-stat strong {
+  font-size: 10px;
+}
+
+.slots-2 .multi-rosters .items {
+  gap: 3px;
+}
+
+.slots-2 .multi-rosters .items img {
+  height: 21px;
+  width: 21px;
 }
 
 .multi-match-grid {
@@ -1869,7 +1926,7 @@ footer p {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 0 12px;
+    padding: 0;
   }
 
   .topbar {
