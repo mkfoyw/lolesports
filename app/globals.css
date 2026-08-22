@@ -1796,23 +1796,21 @@ footer {
 }
 
 .player-matchup-table.compact .matchup-player {
-  background: rgba(45, 52, 65, 0.38);
-  border: 1px solid rgba(255, 255, 255, 0.045);
-  border-radius: 5px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   gap: 7px;
   min-height: 30px;
-  padding: 2px 5px;
+  padding: 2px 0;
   width: min(100%, 170px);
 }
 
 .player-matchup-table.compact .matchup-player.blue {
-  border-left-color: rgba(53, 212, 255, 0.34);
   justify-content: flex-start;
   justify-self: start;
 }
 
 .player-matchup-table.compact .matchup-player.red {
-  border-right-color: rgba(255, 82, 110, 0.34);
   justify-self: end;
 }
 
