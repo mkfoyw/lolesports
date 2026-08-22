@@ -1738,12 +1738,12 @@ footer {
 
 .player-matchup-table.compact .player-matchup-header,
 .player-matchup-table.compact .player-matchup-row {
-  gap: 4px;
-  grid-template-columns: minmax(110px, 150px) 36px 26px 26px 26px 62px minmax(88px, 100px) 62px 26px 26px 26px 36px minmax(110px, 150px);
+  gap: 3px;
+  grid-template-columns: minmax(112px, 132px) 34px 24px 24px 24px 58px 90px 58px 24px 24px 24px 34px minmax(112px, 132px);
   justify-content: center;
   margin-left: auto;
   margin-right: auto;
-  max-width: 820px;
+  max-width: 736px;
 }
 
 .player-matchup-table.compact .player-matchup-row {
@@ -1769,6 +1769,23 @@ footer {
 
 .player-matchup-table.compact .matchup-player-copy {
   min-width: 0;
+}
+
+.player-matchup-table.compact .matchup-player {
+  background: rgba(45, 52, 65, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: 5px;
+  gap: 7px;
+  min-height: 30px;
+  padding: 2px 5px;
+}
+
+.player-matchup-table.compact .matchup-player.blue {
+  border-left-color: rgba(53, 212, 255, 0.34);
+}
+
+.player-matchup-table.compact .matchup-player.red {
+  border-right-color: rgba(255, 82, 110, 0.34);
 }
 
 .player-matchup-table.compact .matchup-player-copy strong {
