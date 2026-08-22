@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ReactNode } from "react";
 
 const FEED_URL = "https://feed.lolesports.com/livestats/v1";
 const FEATURED_MATCH_ID = "116889604984157253";
@@ -15,6 +16,23 @@ const LIVE_REFRESH_INTERVAL_MS = 3_000;
 const EVENT_TOAST_LIFETIME_MS = 7_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
+const LOL_WIKI_BASE_URL = "https://lol.fandom.com/wiki/";
+const TEAM_WIKI_SLUGS: Record<string, string> = {
+  BFX: "BNK_FEARX",
+  BRO: "OK_BRION",
+  DK: "Dplus_Kia",
+  EDG: "EDward_Gaming",
+  GAM: "GAM_Esports",
+  GEN: "Gen.G",
+  GGA: "Gen.G_Global_Academy",
+  IG: "Invictus_Gaming",
+  LGD: "LGD_Gaming",
+  NIP: "Ninjas_in_Pyjamas.CN",
+  NS: "Nongshim_RedForce",
+  T1: "T1",
+  TT: "ThunderTalk_Gaming",
+  WE: "Team_WE",
+};
 
 type TeamResult = { gameWins: number; outcome: "win" | "loss" | null };
 type MatchTeam = {
@@ -204,6 +222,48 @@ function formatGoldDifference(value: number) {
 
 function normalizeImage(value?: string | null) {
   return value?.replace(/^http:\/\//, "https://") ?? "";
+}
+
+function wikiPageUrl(page: string) {
+  const slug = page.trim().replace(/\s+/g, "_");
+  return `${LOL_WIKI_BASE_URL}${encodeURIComponent(slug).replace(/%2F/gi, "/")}`;
+}
+
+function teamWikiUrl(code: string, name: string) {
+  return wikiPageUrl(TEAM_WIKI_SLUGS[code.toUpperCase()] ?? name);
+}
+
+function playerDisplayName(player: ParticipantMetadata | undefined, code: string) {
+  if (!player) return "—";
+  const prefix = `${code} `;
+  return player.summonerName.startsWith(prefix)
+    ? player.summonerName.slice(prefix.length)
+    : player.summonerName;
+}
+
+function WikiLink({
+  children,
+  className = "",
+  href,
+  label,
+}: {
+  children: ReactNode;
+  className?: string;
+  href: string;
+  label: string;
+}) {
+  return (
+    <a
+      aria-label={label}
+      className={`wiki-link ${className}`.trim()}
+      href={href}
+      rel="noopener noreferrer"
+      target="_blank"
+      title={label}
+    >
+      {children}
+    </a>
+  );
 }
 
 function rawTeamId(team?: MatchTeam) {
@@ -997,8 +1057,17 @@ export default function Home() {
             <div className="hero-team blue-side">
               <div>
                 <span>蓝方</span>
-                <h1>{blueTeam?.code ?? selectedMatch.matchTeams[0]?.code ?? "TBD"}</h1>
-                <p>{blueTeam?.name ?? selectedMatch.matchTeams[0]?.name}</p>
+                <WikiLink
+                  className="hero-team-link"
+                  href={teamWikiUrl(
+                    blueTeam?.code ?? selectedMatch.matchTeams[0]?.code ?? "TBD",
+                    blueTeam?.name ?? selectedMatch.matchTeams[0]?.name ?? "TBD",
+                  )}
+                  label={`在 LoL Wiki 中打开 ${blueTeam?.name ?? selectedMatch.matchTeams[0]?.name ?? "蓝方队伍"}`}
+                >
+                  <h1>{blueTeam?.code ?? selectedMatch.matchTeams[0]?.code ?? "TBD"}</h1>
+                  <p>{blueTeam?.name ?? selectedMatch.matchTeams[0]?.name}</p>
+                </WikiLink>
               </div>
               {blueTeam?.image && (
                 <img alt={blueTeam.name} src={normalizeImage(blueTeam.image)} />
@@ -1031,8 +1100,17 @@ export default function Home() {
               )}
               <div>
                 <span>红方</span>
-                <h1>{redTeam?.code ?? selectedMatch.matchTeams[1]?.code ?? "TBD"}</h1>
-                <p>{redTeam?.name ?? selectedMatch.matchTeams[1]?.name}</p>
+                <WikiLink
+                  className="hero-team-link"
+                  href={teamWikiUrl(
+                    redTeam?.code ?? selectedMatch.matchTeams[1]?.code ?? "TBD",
+                    redTeam?.name ?? selectedMatch.matchTeams[1]?.name ?? "TBD",
+                  )}
+                  label={`在 LoL Wiki 中打开 ${redTeam?.name ?? selectedMatch.matchTeams[1]?.name ?? "红方队伍"}`}
+                >
+                  <h1>{redTeam?.code ?? selectedMatch.matchTeams[1]?.code ?? "TBD"}</h1>
+                  <p>{redTeam?.name ?? selectedMatch.matchTeams[1]?.name}</p>
+                </WikiLink>
               </div>
             </div>
           </div>
@@ -1462,7 +1540,15 @@ function MultiMatchCard({
             <img alt="" src={normalizeImage(blueTeam.image)} />
           )}
           <div>
-            <strong>{blueTeam?.code ?? "TBD"}</strong>
+            <WikiLink
+              href={teamWikiUrl(
+                blueTeam?.code ?? "TBD",
+                blueTeam?.name ?? "TBD",
+              )}
+              label={`在 LoL Wiki 中打开 ${blueTeam?.name ?? "蓝方队伍"}`}
+            >
+              <strong>{blueTeam?.code ?? "TBD"}</strong>
+            </WikiLink>
             <span>{compactNumber(frame?.blueTeam.totalGold)}</span>
           </div>
         </div>
@@ -1489,7 +1575,15 @@ function MultiMatchCard({
         </div>
         <div className="multi-team red">
           <div>
-            <strong>{redTeam?.code ?? "TBD"}</strong>
+            <WikiLink
+              href={teamWikiUrl(
+                redTeam?.code ?? "TBD",
+                redTeam?.name ?? "TBD",
+              )}
+              label={`在 LoL Wiki 中打开 ${redTeam?.name ?? "红方队伍"}`}
+            >
+              <strong>{redTeam?.code ?? "TBD"}</strong>
+            </WikiLink>
             <span>{compactNumber(frame?.redTeam.totalGold)}</span>
           </div>
           {redTeam?.image && (
@@ -1587,11 +1681,13 @@ function MultiMatchCard({
               blueCode={blueTeam?.code ?? "蓝方"}
               blueFrame={frame.blueTeam}
               blueMetadata={blueMetadata}
+              blueName={blueTeam?.name ?? "蓝方"}
               compact
               patch={patch}
               redCode={redTeam?.code ?? "红方"}
               redFrame={frame.redTeam}
               redMetadata={redMetadata}
+              redName={redTeam?.name ?? "红方"}
             />
           )}
         </>
@@ -1637,7 +1733,12 @@ function TeamRoster({
   return (
     <section className={`team-roster ${side}-roster`}>
       <div className="roster-title">
-        <strong>{teamName}</strong>
+        <WikiLink
+          href={teamWikiUrl(code, teamName)}
+          label={`在 LoL Wiki 中打开 ${teamName}`}
+        >
+          <strong>{teamName}</strong>
+        </WikiLink>
         <span>{code}</span>
       </div>
       {players.map((player) => {
@@ -1665,7 +1766,7 @@ function TeamRoster({
         const goldDifference = hasGoldDifference
           ? (live?.totalGold ?? 0) - (opposingLive?.totalGold ?? 0)
           : 0;
-        const displayName = player.summonerName.replace(`${code} `, "");
+        const displayName = playerDisplayName(player, code);
 
         return (
           <article className={`player-row ${side}`} key={player.participantId}>
@@ -1678,7 +1779,12 @@ function TeamRoster({
               <span className="level">{live?.level ?? 1}</span>
             </div>
             <div className="player-identity">
-              <strong>{displayName}</strong>
+              <WikiLink
+                href={wikiPageUrl(displayName)}
+                label={`在 LoL Wiki 中打开选手 ${displayName}`}
+              >
+                <strong>{displayName}</strong>
+              </WikiLink>
               <span>{roleLabel(player.role)}</span>
               <div className="health-track" aria-label={`${displayName} 生命值`}>
                 <span style={{ width: `${health}%` }} />
@@ -1729,22 +1835,26 @@ function PlayerMatchupTable({
   blueCode,
   blueFrame,
   blueMetadata,
+  blueName,
   compact = false,
   detailsFrame,
   patch,
   redCode,
   redFrame,
   redMetadata,
+  redName,
 }: {
   blueCode: string;
   blueFrame: TeamFrame;
   blueMetadata?: TeamMetadata;
+  blueName: string;
   compact?: boolean;
   detailsFrame?: DetailsPayload["frames"][number];
   patch: string;
   redCode: string;
   redFrame: TeamFrame;
   redMetadata?: TeamMetadata;
+  redName: string;
 }) {
   const rows = ROLE_ORDER.map((role) => {
     const bluePlayer = blueMetadata?.participantMetadata.find(
@@ -1788,7 +1898,13 @@ function PlayerMatchupTable({
       className={`player-matchup-table ${compact ? "compact" : "detailed"}`}
     >
       <header className="player-matchup-header">
-        <strong className="blue-label">{blueCode}</strong>
+        <WikiLink
+          className="blue-label"
+          href={teamWikiUrl(blueCode, blueName)}
+          label={`在 LoL Wiki 中打开 ${blueName}`}
+        >
+          {blueCode}
+        </WikiLink>
         <span>CS</span>
         <span>K</span>
         <span>D</span>
@@ -1800,7 +1916,13 @@ function PlayerMatchupTable({
         <span>D</span>
         <span>K</span>
         <span>CS</span>
-        <strong className="red-label">{redCode}</strong>
+        <WikiLink
+          className="red-label"
+          href={teamWikiUrl(redCode, redName)}
+          label={`在 LoL Wiki 中打开 ${redName}`}
+        >
+          {redCode}
+        </WikiLink>
       </header>
       {rows.map((row) => (
         <div className="player-matchup-row" key={row.role}>
@@ -1878,7 +2000,7 @@ function MatchupPlayer({
     ? Math.max(0, Math.min(100, (live.currentHealth / live.maxHealth) * 100))
     : 0;
   const items = (details?.items ?? []).filter((item) => item > 0).slice(0, 6);
-  const displayName = player?.summonerName.replace(`${code} `, "") ?? "—";
+  const displayName = playerDisplayName(player, code);
 
   return (
     <div className={`matchup-player ${side}`}>
@@ -1895,7 +2017,16 @@ function MatchupPlayer({
         <div className="matchup-champion-placeholder" />
       )}
       <div className="matchup-player-copy">
-        <strong>{displayName}</strong>
+        {player ? (
+          <WikiLink
+            href={wikiPageUrl(displayName)}
+            label={`在 LoL Wiki 中打开选手 ${displayName}`}
+          >
+            <strong>{displayName}</strong>
+          </WikiLink>
+        ) : (
+          <strong>{displayName}</strong>
+        )}
         <span>{roleLabel(role)} · Lv.{live?.level ?? "—"}</span>
         {!compact && (
           <div className="matchup-health" aria-label={`${displayName} 生命值`}>
