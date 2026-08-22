@@ -1526,12 +1526,28 @@ footer {
   border-right: 1px solid var(--line);
   flex-direction: column;
   gap: 1px;
-  min-width: 100px;
+  min-width: 118px;
   padding: 0 12px;
 }
 
 .multi-objectives > div:nth-child(2) strong {
   font-size: 11px;
+}
+
+.multi-gold-balance {
+  background: rgba(255, 82, 110, 0.5);
+  border-radius: 99px;
+  display: block !important;
+  height: 2px;
+  margin-top: 3px;
+  overflow: hidden;
+  width: 82px;
+}
+
+.multi-gold-balance > span {
+  background: var(--blue);
+  display: block;
+  height: 100%;
 }
 
 .blue-lead {
@@ -1717,22 +1733,26 @@ footer {
 }
 
 .player-matchup-table.compact {
-  padding: 6px 8px 8px;
+  padding: 8px 12px 10px;
 }
 
 .player-matchup-table.compact .player-matchup-header,
 .player-matchup-table.compact .player-matchup-row {
-  gap: 3px;
-  grid-template-columns: minmax(90px, 1fr) 34px 24px 24px 24px 58px minmax(68px, 0.58fr) 58px 24px 24px 24px 34px minmax(90px, 1fr);
+  gap: 4px;
+  grid-template-columns: minmax(110px, 150px) 36px 26px 26px 26px 62px minmax(88px, 100px) 62px 26px 26px 26px 36px minmax(110px, 150px);
+  justify-content: center;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 820px;
 }
 
 .player-matchup-table.compact .player-matchup-row {
-  min-height: 34px;
+  min-height: 38px;
 }
 
 .player-matchup-table.compact .matchup-stat,
 .player-matchup-table.compact .matchup-delta {
-  height: 26px;
+  height: 28px;
 }
 
 .player-matchup-table.compact .matchup-champion-wrap,
@@ -1749,6 +1769,15 @@ footer {
 
 .player-matchup-table.compact .matchup-player-copy {
   min-width: 0;
+}
+
+.player-matchup-table.compact .matchup-player-copy strong {
+  font-size: 10px;
+}
+
+.player-matchup-table.compact .matchup-delta {
+  background: rgba(67, 75, 91, 0.72);
+  font-size: 10px;
 }
 
 .multi-card-waiting {

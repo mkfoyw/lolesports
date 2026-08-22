@@ -1422,6 +1422,20 @@ function MultiMatchCard({
             <div className={totalDelta >= 0 ? "blue-lead" : "red-lead"}>
               <span>总经济差</span>
               <strong>{totalLeader}</strong>
+              <div className="multi-gold-balance" aria-hidden="true">
+                <span
+                  style={{
+                    width: `${
+                      (frame.blueTeam.totalGold /
+                        Math.max(
+                          1,
+                          frame.blueTeam.totalGold + frame.redTeam.totalGold,
+                        )) *
+                      100
+                    }%`,
+                  }}
+                />
+              </div>
             </div>
             <div>
               <strong>{frame.redTeam.towers}</strong><span>塔</span>
