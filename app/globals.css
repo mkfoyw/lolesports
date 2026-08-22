@@ -57,8 +57,24 @@ input:focus-visible {
 .app-shell {
   min-height: 100vh;
   overflow: hidden;
-  padding: 0 max(20px, calc((100vw - 1440px) / 2));
+  padding: 0 clamp(12px, 1.15vw, 28px);
   position: relative;
+  width: 100%;
+}
+
+.multi-mode .topbar {
+  min-height: 72px;
+}
+
+.multi-mode .control-deck {
+  grid-template-columns: auto auto;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  padding-top: 16px;
+}
+
+.multi-mode > footer {
+  display: none;
 }
 
 .ambient {
@@ -92,7 +108,7 @@ input:focus-visible {
   gap: 10px;
   pointer-events: none;
   position: fixed;
-  right: max(20px, calc((100vw - 1440px) / 2));
+  right: clamp(12px, 1.15vw, 28px);
   top: 96px;
   width: min(360px, calc(100vw - 32px));
   z-index: 50;
@@ -428,34 +444,6 @@ footer {
   display: flex;
   flex-direction: column;
   gap: 7px;
-}
-
-.multi-view-summary {
-  align-items: baseline;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  display: flex;
-  gap: 12px;
-  height: 44px;
-  padding: 0 14px;
-}
-
-.multi-view-summary > span {
-  color: var(--blue);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-}
-
-.multi-view-summary strong {
-  font-size: 13px;
-}
-
-.multi-view-summary small {
-  color: var(--muted);
-  font-size: 10px;
 }
 
 .match-select > span {
@@ -1294,6 +1282,67 @@ footer {
   margin-top: 2px;
 }
 
+.multi-game-tabs {
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: center;
+  min-height: 36px;
+}
+
+.multi-game-tabs button {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--line);
+  color: #6f7a8d;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 58px;
+  padding: 3px 9px;
+  position: relative;
+}
+
+.multi-game-tabs button:last-child {
+  border-right: 1px solid var(--line);
+}
+
+.multi-game-tabs button::after {
+  background: var(--blue);
+  bottom: -1px;
+  content: "";
+  height: 2px;
+  left: 18%;
+  position: absolute;
+  transform: scaleX(0);
+  transition: transform 150ms ease;
+  width: 64%;
+}
+
+.multi-game-tabs button:hover,
+.multi-game-tabs button.active {
+  background: rgba(255, 255, 255, 0.035);
+  color: white;
+}
+
+.multi-game-tabs button.active::after {
+  transform: scaleX(1);
+}
+
+.multi-game-tabs strong {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+}
+
+.multi-game-tabs span {
+  color: inherit;
+  font-size: 7px;
+  margin-top: 1px;
+  opacity: 0.72;
+}
+
 .multi-objectives {
   align-items: center;
   background: rgba(255, 255, 255, 0.022);
@@ -1347,72 +1396,213 @@ footer {
   color: var(--red) !important;
 }
 
-.role-gold-table > header,
-.role-gold-row {
+.player-matchup-table {
+  padding: 10px 14px 13px;
+}
+
+.player-matchup-header,
+.player-matchup-row {
   align-items: center;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px 92px minmax(0, 1fr);
+  gap: 4px;
+  grid-template-columns: minmax(220px, 1fr) 54px 34px 34px 34px 72px minmax(88px, 0.5fr) 72px 34px 34px 34px 54px minmax(220px, 1fr);
 }
 
-.role-gold-table > header {
-  color: var(--muted);
+.player-matchup-header {
+  color: #aeb9c9;
   font-family: var(--font-geist-mono), monospace;
   font-size: 8px;
+  font-weight: 800;
   min-height: 27px;
-  padding: 0 14px;
-}
-
-.role-gold-table > header strong {
-  grid-column: 2 / 4;
   text-align: center;
 }
 
-.role-gold-table > header span:last-child {
-  grid-column: 4;
+.player-matchup-header > strong {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 11px;
+}
+
+.player-matchup-header .blue-label {
+  color: var(--blue);
+  text-align: left;
+}
+
+.player-matchup-header .red-label {
+  color: var(--red);
   text-align: right;
 }
 
-.role-gold-row {
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  min-height: 32px;
-  padding: 3px 14px;
+.player-matchup-header .delta-label {
+  color: #e2e8f1;
 }
 
-.role-player {
-  align-items: baseline;
+.player-matchup-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  color: #c7d0dc;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+  min-height: 52px;
+  text-align: center;
+}
+
+.matchup-stat,
+.matchup-delta {
+  align-items: center;
+  background: rgba(55, 62, 75, 0.62);
+  border-radius: 4px;
   display: flex;
-  gap: 6px;
+  height: 31px;
+  justify-content: center;
+}
+
+.matchup-stat.gold-value {
+  color: var(--gold);
+}
+
+.matchup-delta {
+  color: #aeb9c9;
+  font-size: 10px;
+}
+
+.matchup-player {
+  align-items: center;
+  display: flex;
+  gap: 8px;
   min-width: 0;
 }
 
-.role-player.red {
-  justify-content: flex-end;
+.matchup-player.red {
+  flex-direction: row-reverse;
+  text-align: right;
 }
 
-.role-player strong {
-  font-size: 9px;
+.matchup-champion-wrap {
+  flex: 0 0 auto;
+  height: 38px;
+  position: relative;
+  width: 38px;
+}
+
+.matchup-champion,
+.matchup-champion-placeholder {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  height: 38px;
+  object-fit: cover;
+  width: 38px;
+}
+
+.matchup-champion-wrap > span {
+  align-items: center;
+  background: #080b10;
+  border: 1px solid #303744;
+  border-radius: 50%;
+  bottom: -3px;
+  display: flex;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+  height: 16px;
+  justify-content: center;
+  position: absolute;
+  right: -3px;
+  width: 16px;
+}
+
+.matchup-player-copy {
+  min-width: 82px;
+}
+
+.matchup-player-copy strong {
+  color: #eaf0f8;
+  display: block;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.role-player span {
-  color: var(--gold);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
-}
-
-.role-label {
+.matchup-player-copy > span {
   color: var(--muted);
-  font-size: 8px;
-  text-align: center;
+  display: block;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 7px;
+  margin-top: 2px;
 }
 
-.role-gold-row > strong {
-  color: #aeb7c5;
-  font-family: var(--font-geist-mono), monospace;
+.matchup-health {
+  background: #242c37;
+  border-radius: 99px;
+  height: 2px;
+  margin-top: 5px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.matchup-health > span {
+  background: var(--green);
+  display: block;
+  height: 100%;
+}
+
+.matchup-items {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 3px;
+  min-width: 0;
+}
+
+.matchup-player.red .matchup-items {
+  justify-content: flex-end;
+}
+
+.matchup-items img {
+  background: #171d26;
+  border: 1px solid #343c49;
+  border-radius: 4px;
+  height: 25px;
+  width: 25px;
+}
+
+.matchup-items > span {
+  color: #566173;
   font-size: 8px;
-  text-align: center;
+}
+
+.player-matchup-table.compact {
+  padding: 6px 8px 8px;
+}
+
+.player-matchup-table.compact .player-matchup-header,
+.player-matchup-table.compact .player-matchup-row {
+  gap: 3px;
+  grid-template-columns: minmax(90px, 1fr) 34px 24px 24px 24px 58px minmax(68px, 0.58fr) 58px 24px 24px 24px 34px minmax(90px, 1fr);
+}
+
+.player-matchup-table.compact .player-matchup-row {
+  min-height: 34px;
+}
+
+.player-matchup-table.compact .matchup-stat,
+.player-matchup-table.compact .matchup-delta {
+  height: 26px;
+}
+
+.player-matchup-table.compact .matchup-champion-wrap,
+.player-matchup-table.compact .matchup-champion,
+.player-matchup-table.compact .matchup-champion-placeholder {
+  height: 26px;
+  width: 26px;
+}
+
+.player-matchup-table.compact .matchup-champion-wrap > span,
+.player-matchup-table.compact .matchup-player-copy > span {
+  display: none;
+}
+
+.player-matchup-table.compact .matchup-player-copy {
+  min-width: 0;
 }
 
 .multi-card-waiting {
@@ -1476,6 +1666,15 @@ footer {
   padding-top: 7px;
 }
 
+.slots-4 .multi-game-tabs {
+  min-height: 31px;
+}
+
+.slots-4 .multi-game-tabs button {
+  min-width: 48px;
+  padding: 2px 6px;
+}
+
 .slots-4 .multi-team img {
   height: 36px;
   width: 36px;
@@ -1483,14 +1682,6 @@ footer {
 
 .slots-4 .multi-objectives {
   min-height: 34px;
-}
-
-.slots-4 .role-gold-table > header {
-  min-height: 22px;
-}
-
-.slots-4 .role-gold-row {
-  min-height: 25px;
 }
 
 .slots-4 .multi-card-footer {
@@ -1628,14 +1819,6 @@ footer p {
     min-height: 86px;
   }
 
-  .player-row {
-    grid-template-columns: 44px minmax(100px, 1fr) 85px 45px 55px;
-  }
-
-  .items {
-    display: none;
-  }
-
   .multi-scoreboard {
     grid-template-columns: 1fr 98px 1fr;
     padding-left: 11px;
@@ -1646,9 +1829,18 @@ footer p {
     display: none;
   }
 
-  .role-gold-table > header,
-  .role-gold-row {
-    grid-template-columns: minmax(0, 1fr) 36px 80px minmax(0, 1fr);
+  .player-matchup-table {
+    overflow-x: auto;
+  }
+
+  .player-matchup-table.detailed .player-matchup-header,
+  .player-matchup-table.detailed .player-matchup-row {
+    min-width: 1020px;
+  }
+
+  .player-matchup-table.compact .player-matchup-header,
+  .player-matchup-table.compact .player-matchup-row {
+    min-width: 640px;
   }
 }
 
@@ -1708,16 +1900,6 @@ footer p {
 
   .control-deck {
     grid-template-columns: 1fr;
-  }
-
-  .multi-view-summary {
-    align-items: center;
-    height: auto;
-    min-height: 54px;
-  }
-
-  .multi-view-summary small {
-    display: none;
   }
 
   .date-control {
@@ -1812,25 +1994,9 @@ footer p {
     gap: 7px;
   }
 
-  .player-row {
-    gap: 9px;
-    grid-template-columns: 42px minmax(84px, 1fr) 78px 42px;
-    padding: 8px 10px;
-  }
-
-  .player-stat.gold,
-  .items {
-    display: none;
-  }
-
-  .champion-wrap,
-  .champion {
-    height: 39px;
-    width: 39px;
-  }
-
-  .kda-block strong {
-    font-size: 10px;
+  .player-matchup-table {
+    padding-left: 8px;
+    padding-right: 8px;
   }
 
   footer {

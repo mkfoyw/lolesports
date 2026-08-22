@@ -191,28 +191,6 @@ function recentStartingTime(secondsAgo: number) {
   return date.toISOString();
 }
 
-function preferredMatchIds(
-  matches: MatchEvent[],
-  count: number,
-  selectedId = "",
-  current: string[] = [],
-) {
-  const now = Date.now();
-  const ranked = [...matches].sort((left, right) => {
-    const leftLive = left.state === "inProgress" ? 0 : 1;
-    const rightLive = right.state === "inProgress" ? 0 : 1;
-    if (leftLive !== rightLive) return leftLive - rightLive;
-    return (
-      Math.abs(new Date(left.startTime).getTime() - now) -
-      Math.abs(new Date(right.startTime).getTime() - now)
-    );
-  });
-  return [...current, selectedId, ...ranked.map((match) => match.id)]
-    .filter((id, index, all) => id && all.indexOf(id) === index)
-    .filter((id) => matches.some((match) => match.id === id))
-    .slice(0, count);
-}
-
 async function readJson<T>(response: Response): Promise<T | null> {
   if (response.status === 204) return null;
   if (!response.ok) {
@@ -352,31 +330,35 @@ export default function Home() {
   const changeViewMode = useCallback(
     (nextMode: ViewMode) => {
       setViewMode(nextMode);
+      setError("");
       if (nextMode > 1) {
         setMultiMatchIds((current) =>
-          preferredMatchIds(events, nextMode, selectedMatchId, current),
+          Array.from({ length: nextMode }, (_, slot) => current[slot] ?? ""),
         );
+      } else {
+        scannedMatchId.current = "";
       }
     },
-    [events, selectedMatchId],
+    [],
   );
 
   const selectMultiMatch = useCallback(
     (slot: number, matchId: string) => {
       setMultiMatchIds((current) => {
-        const next = preferredMatchIds(events, viewMode, selectedMatchId, current);
-        const existingSlot = next.indexOf(matchId);
-        if (existingSlot >= 0 && existingSlot !== slot) {
-          const previous = next[slot];
-          next[slot] = matchId;
-          next[existingSlot] = previous;
-        } else {
-          next[slot] = matchId;
+        const next = Array.from(
+          { length: viewMode },
+          (_, index) => current[index] ?? "",
+        );
+        if (matchId) {
+          next.forEach((currentId, index) => {
+            if (index !== slot && currentId === matchId) next[index] = "";
+          });
         }
+        next[slot] = matchId;
         return next;
       });
     },
-    [events, selectedMatchId, viewMode],
+    [viewMode],
   );
 
   const dismissEventToast = useCallback((id: number) => {
@@ -557,8 +539,8 @@ export default function Home() {
           setLastUpdated(new Date().toISOString());
           setError("");
         }
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "实时数据刷新失败");
+      } catch {
+        setError("实时数据暂时无法读取，正在等待下一次刷新。");
       } finally {
         refreshInFlight.current = false;
         setRefreshing(false);
@@ -590,8 +572,8 @@ export default function Home() {
         );
         setWindowData(initial);
         await refreshGame(gameId, true);
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "无法读取该局数据");
+      } catch {
+        setError("该小局暂时无法读取，请切换其他小局。");
       } finally {
         setRefreshing(false);
       }
@@ -607,18 +589,26 @@ export default function Home() {
       let latest: { game: Game; payload: WindowPayload } | null = null;
       try {
         for (const game of [...match.match.games].reverse()) {
-          const payload = await fetchInitialWindow(game.id);
-          if (!payload?.frames?.length) continue;
-          found.push(game.id);
-          const firstTimestamp = payload.frames[0].rfc460Timestamp;
-          setGameStarts((current) => ({ ...current, [game.id]: firstTimestamp }));
-          if (!latest) latest = { game, payload };
+          try {
+            const payload = await fetchInitialWindow(game.id);
+            if (!payload?.frames.length) continue;
+            found.push(game.id);
+            const firstTimestamp = payload.frames[0].rfc460Timestamp;
+            setGameStarts((current) => ({
+              ...current,
+              [game.id]: firstTimestamp,
+            }));
+            if (!latest) latest = { game, payload };
+          } catch {
+            // Some future or disabled games return an error. Keep checking the
+            // remaining games so one unavailable game cannot block BO switching.
+          }
         }
         setAvailableGames(found);
         if (!latest) {
           setSelectedGameId(match.match.games[0]?.id ?? "");
           setWindowData(null);
-          setError("比赛尚未开局，正在等待 LiveStats 数据");
+          setError("当前还没有可读取的小局数据，可使用 G1–G5 按钮切换查看。");
           return;
         }
         setSelectedGameId(latest.game.id);
@@ -642,13 +632,17 @@ export default function Home() {
     if (viewMode === 1) return;
     const timeout = window.setTimeout(() => {
       setMultiMatchIds((current) =>
-        preferredMatchIds(events, viewMode, selectedMatchId, current),
+        Array.from({ length: viewMode }, (_, slot) => {
+          const matchId = current[slot] ?? "";
+          return events.some((event) => event.id === matchId) ? matchId : "";
+        }),
       );
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [events, selectedMatchId, viewMode]);
+  }, [events, viewMode]);
 
   useEffect(() => {
+    if (viewMode !== 1) return;
     if (!selectedMatch) {
       scannedMatchId.current = "";
       return;
@@ -667,7 +661,7 @@ export default function Home() {
       void scanLatestGame(selectedMatch);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [clearEventToasts, selectedMatch, scanLatestGame]);
+  }, [clearEventToasts, selectedMatch, scanLatestGame, viewMode]);
 
   useEffect(() => {
     if (!autoRefresh || !selectedGameId) return;
@@ -737,76 +731,8 @@ export default function Home() {
         : "LIVE"
     : "等待开局";
 
-  const renderPlayers = (
-    side: "blue" | "red",
-    metadata?: TeamMetadata,
-    teamFrame?: TeamFrame,
-  ) => {
-    if (!metadata || !teamFrame) return null;
-    return metadata.participantMetadata.map((player) => {
-      const live = teamFrame.participants.find(
-        (participant) => participant.participantId === player.participantId,
-      );
-      const details = detailsFrame?.participants.find(
-        (participant) => participant.participantId === player.participantId,
-      );
-      const health = live?.maxHealth
-        ? Math.max(0, Math.min(100, (live.currentHealth / live.maxHealth) * 100))
-        : 0;
-      return (
-        <article className={`player-row ${side}`} key={player.participantId}>
-          <div className="champion-wrap">
-            <img
-              alt={player.championId}
-              className="champion"
-              src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${player.championId}.png`}
-            />
-            <span className="level">{live?.level ?? 1}</span>
-          </div>
-          <div className="player-identity">
-            <strong>{player.summonerName.replace(/^(DK|NS)\s/, "")}</strong>
-            <span>{roleLabel(player.role)}</span>
-            <div className="health-track" aria-label={`${player.summonerName} 生命值`}>
-              <span style={{ width: `${health}%` }} />
-            </div>
-          </div>
-          <div className="kda-block">
-            <strong>
-              {live?.kills ?? 0}<span>/</span>{live?.deaths ?? 0}<span>/</span>
-              {live?.assists ?? 0}
-            </strong>
-            <span>K / D / A</span>
-          </div>
-          <div className="player-stat">
-            <strong>{live?.creepScore ?? 0}</strong>
-            <span>补刀</span>
-          </div>
-          <div className="player-stat gold">
-            <strong>{compactNumber(live?.totalGold ?? details?.totalGoldEarned)}</strong>
-            <span>经济</span>
-          </div>
-          <div className="items" aria-label={`${player.summonerName} 装备`}>
-            {(details?.items ?? [])
-              .filter((item) => item > 0)
-              .slice(0, 6)
-              .map((item, index) => (
-                <img
-                  alt={`装备 ${item}`}
-                  key={`${item}-${index}`}
-                  src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${item}.png`}
-                />
-              ))}
-            {!(details?.items ?? []).some((item) => item > 0) && (
-              <span className="items-empty">装备同步中</span>
-            )}
-          </div>
-        </article>
-      );
-    });
-  };
-
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${viewMode > 1 ? "multi-mode" : "single-mode"}`}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
@@ -938,21 +864,14 @@ export default function Home() {
             </button>
           </>
         ) : (
-          <>
-            <div className="multi-view-summary">
-              <span>MULTI VIEW</span>
-              <strong>{viewMode === 2 ? "双场并行" : "四场全景"}</strong>
-              <small>每场独立读取最新对局与五路经济差</small>
-            </div>
-            <button
-              className="scan-button"
-              disabled={scheduleLoading || multiMatchIds.length === 0}
-              onClick={() => setMultiRefreshTick((current) => current + 1)}
-              type="button"
-            >
-              同步全部比赛
-            </button>
-          </>
+          <button
+            className="scan-button"
+            disabled={scheduleLoading || !multiMatchIds.some(Boolean)}
+            onClick={() => setMultiRefreshTick((current) => current + 1)}
+            type="button"
+          >
+            同步已选比赛
+          </button>
         )}
       </section>
 
@@ -1010,7 +929,7 @@ export default function Home() {
                 onClick={() => void selectGame(game.id)}
                 type="button"
               >
-                <span>GAME {game.number}</span>
+                <span>G{game.number}</span>
                 <small>
                   {availableGames.includes(game.id)
                     ? selectedGameId === game.id
@@ -1018,7 +937,10 @@ export default function Home() {
                         ? "已停止"
                         : "实时"
                       : "有数据"
-                    : "未开始"}
+                    : game.state.toLowerCase().includes("complete") ||
+                        game.state.toLowerCase().includes("finish")
+                      ? "待读取"
+                      : "未开始"}
                 </small>
               </button>
             ))}
@@ -1026,7 +948,7 @@ export default function Home() {
         </section>
       )}
 
-      {error && <div className="notice">{error}</div>}
+      {viewMode === 1 && error && <div className="notice">{error}</div>}
 
       {viewMode > 1 ? (
         <MultiMatchBoard
@@ -1097,28 +1019,23 @@ export default function Home() {
           <section className="players-panel">
             <header>
               <div>
-                <span>PLAYERS</span>
-                <h2>选手实时状态</h2>
+                <span>MATCHUPS</span>
+                <h2>选手对位数据</h2>
               </div>
               <p>
                 数据帧 {formatTimestamp(frame.rfc460Timestamp)} · 版本 {patch}
               </p>
             </header>
-            <div className="team-roster blue-roster">
-              <div className="roster-title">
-                <strong>{blueTeam?.name ?? "蓝方"}</strong>
-                <span>{blueTeam?.code}</span>
-              </div>
-              {renderPlayers("blue", blueMetadata, frame.blueTeam)}
-            </div>
-            <div className="roster-separator" />
-            <div className="team-roster red-roster">
-              <div className="roster-title">
-                <strong>{redTeam?.name ?? "红方"}</strong>
-                <span>{redTeam?.code}</span>
-              </div>
-              {renderPlayers("red", redMetadata, frame.redTeam)}
-            </div>
+            <PlayerMatchupTable
+              blueCode={blueTeam?.code ?? "蓝方"}
+              blueFrame={frame.blueTeam}
+              blueMetadata={blueMetadata}
+              detailsFrame={detailsFrame}
+              patch={patch}
+              redCode={redTeam?.code ?? "红方"}
+              redFrame={frame.redTeam}
+              redMetadata={redMetadata}
+            />
           </section>
         </>
       ) : (
@@ -1183,7 +1100,7 @@ function MultiMatchBoard({
                 onChange={(event) => onSelectMatch(slot, event.target.value)}
                 value={match?.id ?? ""}
               >
-                {!match && <option value="">暂无可选比赛</option>}
+                <option value="">选择一场比赛</option>
                 {events.map((event) => (
                   <option key={event.id} value={event.id}>
                     {formatStartTime(event.startTime)} · {event.matchTeams.map((team) => team.code).join(" vs ")} · {event.league.name}
@@ -1199,8 +1116,8 @@ function MultiMatchBoard({
               />
             ) : (
               <div className="multi-empty">
-                <strong>等待赛事</strong>
-                <span>当天赛事不足 {slots} 场时，这里会保持空闲。</span>
+                <strong>尚未选择比赛</strong>
+                <span>从上方列表选择后，这个位置才会开始读取数据。</span>
               </div>
             )}
           </div>
@@ -1227,6 +1144,11 @@ function MultiMatchCard({
   const [message, setMessage] = useState("");
   const requestSequence = useRef(0);
   const refreshInFlight = useRef(false);
+  const gamesRef = useRef(match.match.games);
+
+  useEffect(() => {
+    gamesRef.current = match.match.games;
+  }, [match.match.games]);
 
   const refresh = useCallback(async (gameId: string) => {
     if (!gameId || refreshInFlight.current) return;
@@ -1238,12 +1160,41 @@ function MultiMatchCard({
         setLastUpdated(new Date().toISOString());
         setMessage("");
       }
-    } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "实时数据刷新失败");
+    } catch {
+      setMessage("实时数据暂时无法读取");
     } finally {
       refreshInFlight.current = false;
     }
   }, []);
+
+  const loadGame = useCallback(
+    async (game: Game) => {
+      const sequence = ++requestSequence.current;
+      setLoading(true);
+      setMessage("");
+      setWindowData(null);
+      setSelectedGameId(game.id);
+      try {
+        const payload = await fetchInitialWindow(game.id);
+        if (requestSequence.current !== sequence) return;
+        if (!payload?.frames.length) {
+          setMessage(`第 ${game.number} 局尚未产生数据`);
+          return;
+        }
+        setGameStart(payload.frames[0].rfc460Timestamp);
+        setWindowData(payload);
+        setLastUpdated(new Date().toISOString());
+        void refresh(game.id);
+      } catch {
+        if (requestSequence.current === sequence) {
+          setMessage(`第 ${game.number} 局暂时无法读取`);
+        }
+      } finally {
+        if (requestSequence.current === sequence) setLoading(false);
+      }
+    },
+    [refresh],
+  );
 
   const scanLatest = useCallback(async () => {
     const sequence = ++requestSequence.current;
@@ -1252,7 +1203,7 @@ function MultiMatchCard({
     setWindowData(null);
     setSelectedGameId("");
     try {
-      for (const game of [...match.match.games].reverse()) {
+      for (const game of [...gamesRef.current].reverse()) {
         try {
           const payload = await fetchInitialWindow(game.id);
           if (!payload?.frames.length) continue;
@@ -1269,12 +1220,13 @@ function MultiMatchCard({
         }
       }
       if (requestSequence.current === sequence) {
+        setSelectedGameId(gamesRef.current[0]?.id ?? "");
         setMessage("等待开局数据");
       }
     } finally {
       if (requestSequence.current === sequence) setLoading(false);
     }
-  }, [match.match.games, refresh]);
+  }, [refresh]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void scanLatest(), 0);
@@ -1303,6 +1255,7 @@ function MultiMatchCard({
     (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
   ) ?? match.matchTeams[1];
   const selectedGame = match.match.games.find((game) => game.id === selectedGameId);
+  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const totalDelta = frame
     ? frame.blueTeam.totalGold - frame.redTeam.totalGold
     : 0;
@@ -1360,6 +1313,32 @@ function MultiMatchCard({
         </div>
       </div>
 
+      <nav
+        aria-label={`${blueTeam?.code ?? "蓝方"} 对 ${redTeam?.code ?? "红方"} 分局选择`}
+        className="multi-game-tabs"
+      >
+        {match.match.games.map((game) => {
+          const normalizedState = game.state.toLowerCase();
+          const stateLabel = normalizedState.includes("progress")
+            ? "实时"
+            : normalizedState.includes("complete") || normalizedState.includes("finish")
+              ? "已结束"
+              : "未开始";
+          return (
+            <button
+              aria-current={selectedGameId === game.id ? "page" : undefined}
+              className={selectedGameId === game.id ? "active" : ""}
+              key={game.id}
+              onClick={() => void loadGame(game)}
+              type="button"
+            >
+              <strong>G{game.number}</strong>
+              <span>{selectedGameId === game.id && loading ? "读取中" : stateLabel}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       {frame ? (
         <>
           <div className="multi-objectives">
@@ -1378,10 +1357,12 @@ function MultiMatchCard({
               <strong>{frame.redTeam.barons}</strong><span>男爵</span>
             </div>
           </div>
-          <RoleGoldTable
+          <PlayerMatchupTable
             blueCode={blueTeam?.code ?? "蓝方"}
             blueFrame={frame.blueTeam}
             blueMetadata={blueMetadata}
+            compact
+            patch={patch}
             redCode={redTeam?.code ?? "红方"}
             redFrame={frame.redTeam}
             redMetadata={redMetadata}
@@ -1403,10 +1384,13 @@ function MultiMatchCard({
   );
 }
 
-function RoleGoldTable({
+function PlayerMatchupTable({
   blueCode,
   blueFrame,
   blueMetadata,
+  compact = false,
+  detailsFrame,
+  patch,
   redCode,
   redFrame,
   redMetadata,
@@ -1414,53 +1398,182 @@ function RoleGoldTable({
   blueCode: string;
   blueFrame: TeamFrame;
   blueMetadata?: TeamMetadata;
+  compact?: boolean;
+  detailsFrame?: DetailsPayload["frames"][number];
+  patch: string;
   redCode: string;
   redFrame: TeamFrame;
   redMetadata?: TeamMetadata;
 }) {
+  const rows = ROLE_ORDER.map((role) => {
+    const bluePlayer = blueMetadata?.participantMetadata.find(
+      (player) => normalizedRole(player.role) === role,
+    );
+    const redPlayer = redMetadata?.participantMetadata.find(
+      (player) => normalizedRole(player.role) === role,
+    );
+    const blueLive = blueFrame.participants.find(
+      (participant) => participant.participantId === bluePlayer?.participantId,
+    );
+    const redLive = redFrame.participants.find(
+      (participant) => participant.participantId === redPlayer?.participantId,
+    );
+    const blueDetails = detailsFrame?.participants.find(
+      (participant) => participant.participantId === bluePlayer?.participantId,
+    );
+    const redDetails = detailsFrame?.participants.find(
+      (participant) => participant.participantId === redPlayer?.participantId,
+    );
+    const hasGoldData = Boolean(blueLive && redLive);
+    const delta = hasGoldData
+      ? (blueLive?.totalGold ?? 0) - (redLive?.totalGold ?? 0)
+      : 0;
+    return {
+      blueDetails,
+      blueLive,
+      bluePlayer,
+      delta,
+      hasGoldData,
+      redDetails,
+      redLive,
+      redPlayer,
+      role,
+    };
+  });
+
   return (
-    <section className="role-gold-table" aria-label="对应位置经济差">
-      <header>
-        <span>{blueCode}</span>
-        <strong>对应位置经济差</strong>
-        <span>{redCode}</span>
+    <section
+      aria-label="选手对位数据与经济差"
+      className={`player-matchup-table ${compact ? "compact" : "detailed"}`}
+    >
+      <header className="player-matchup-header">
+        <strong className="blue-label">{blueCode}</strong>
+        <span>CS</span>
+        <span>K</span>
+        <span>D</span>
+        <span>A</span>
+        <span>Gold</span>
+        <span className="delta-label">经济差</span>
+        <span>Gold</span>
+        <span>A</span>
+        <span>D</span>
+        <span>K</span>
+        <span>CS</span>
+        <strong className="red-label">{redCode}</strong>
       </header>
-      {ROLE_ORDER.map((role) => {
-        const bluePlayer = blueMetadata?.participantMetadata.find(
-          (player) => normalizedRole(player.role) === role,
-        );
-        const redPlayer = redMetadata?.participantMetadata.find(
-          (player) => normalizedRole(player.role) === role,
-        );
-        const blueLive = blueFrame.participants.find(
-          (participant) => participant.participantId === bluePlayer?.participantId,
-        );
-        const redLive = redFrame.participants.find(
-          (participant) => participant.participantId === redPlayer?.participantId,
-        );
-        const delta = (blueLive?.totalGold ?? 0) - (redLive?.totalGold ?? 0);
-        const leader = delta === 0
-          ? "持平"
-          : delta > 0
-            ? `${blueCode} +${compactNumber(Math.abs(delta))}`
-            : `${redCode} +${compactNumber(Math.abs(delta))}`;
-        return (
-          <div className="role-gold-row" key={role}>
-            <div className="role-player blue">
-              <strong>{bluePlayer?.summonerName ?? "—"}</strong>
-              <span>{compactNumber(blueLive?.totalGold)}</span>
-            </div>
-            <span className="role-label">{roleLabel(role)}</span>
-            <strong className={delta > 0 ? "blue-lead" : delta < 0 ? "red-lead" : ""}>
-              {leader}
-            </strong>
-            <div className="role-player red">
-              <span>{compactNumber(redLive?.totalGold)}</span>
-              <strong>{redPlayer?.summonerName ?? "—"}</strong>
-            </div>
-          </div>
-        );
-      })}
+      {rows.map((row) => (
+        <div className="player-matchup-row" key={row.role}>
+          <MatchupPlayer
+            code={blueCode}
+            compact={compact}
+            details={row.blueDetails}
+            live={row.blueLive}
+            patch={patch}
+            player={row.bluePlayer}
+            role={row.role}
+            side="blue"
+          />
+          <span className="matchup-stat">{row.blueLive?.creepScore ?? "—"}</span>
+          <span className="matchup-stat">{row.blueLive?.kills ?? "—"}</span>
+          <span className="matchup-stat">{row.blueLive?.deaths ?? "—"}</span>
+          <span className="matchup-stat">{row.blueLive?.assists ?? "—"}</span>
+          <span className="matchup-stat gold-value">
+            {row.blueLive ? row.blueLive.totalGold.toLocaleString("en-US") : "—"}
+          </span>
+          <strong
+            className={`matchup-delta ${
+              row.delta > 0 ? "blue-lead" : row.delta < 0 ? "red-lead" : ""
+            }`}
+          >
+            {row.hasGoldData
+              ? row.delta === 0
+                ? "0"
+                : `${row.delta > 0 ? "+" : "−"}${Math.abs(row.delta).toLocaleString("en-US")}`
+              : "—"}
+          </strong>
+          <span className="matchup-stat gold-value">
+            {row.redLive ? row.redLive.totalGold.toLocaleString("en-US") : "—"}
+          </span>
+          <span className="matchup-stat">{row.redLive?.assists ?? "—"}</span>
+          <span className="matchup-stat">{row.redLive?.deaths ?? "—"}</span>
+          <span className="matchup-stat">{row.redLive?.kills ?? "—"}</span>
+          <span className="matchup-stat">{row.redLive?.creepScore ?? "—"}</span>
+          <MatchupPlayer
+            code={redCode}
+            compact={compact}
+            details={row.redDetails}
+            live={row.redLive}
+            patch={patch}
+            player={row.redPlayer}
+            role={row.role}
+            side="red"
+          />
+        </div>
+      ))}
     </section>
+  );
+}
+
+function MatchupPlayer({
+  code,
+  compact,
+  details,
+  live,
+  patch,
+  player,
+  role,
+  side,
+}: {
+  code: string;
+  compact: boolean;
+  details?: DetailParticipant;
+  live?: WindowParticipant;
+  patch: string;
+  player?: ParticipantMetadata;
+  role: string;
+  side: "blue" | "red";
+}) {
+  const health = live?.maxHealth
+    ? Math.max(0, Math.min(100, (live.currentHealth / live.maxHealth) * 100))
+    : 0;
+  const items = (details?.items ?? []).filter((item) => item > 0).slice(0, 6);
+  const displayName = player?.summonerName.replace(`${code} `, "") ?? "—";
+
+  return (
+    <div className={`matchup-player ${side}`}>
+      {player ? (
+        <div className="matchup-champion-wrap">
+          <img
+            alt={player.championId}
+            className="matchup-champion"
+            src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/champion/${player.championId}.png`}
+          />
+          <span>{live?.level ?? 1}</span>
+        </div>
+      ) : (
+        <div className="matchup-champion-placeholder" />
+      )}
+      <div className="matchup-player-copy">
+        <strong>{displayName}</strong>
+        <span>{roleLabel(role)} · Lv.{live?.level ?? "—"}</span>
+        {!compact && (
+          <div className="matchup-health" aria-label={`${displayName} 生命值`}>
+            <span style={{ width: `${health}%` }} />
+          </div>
+        )}
+      </div>
+      {!compact && (
+        <div className="matchup-items" aria-label={`${displayName} 装备`}>
+          {items.map((item, index) => (
+            <img
+              alt={`装备 ${item}`}
+              key={`${item}-${index}`}
+              src={`https://ddragon.leagueoflegends.com/cdn/${patch}/img/item/${item}.png`}
+            />
+          ))}
+          {items.length === 0 && <span>装备同步中</span>}
+        </div>
+      )}
+    </div>
   );
 }
