@@ -14,6 +14,7 @@ const FEATURED_MATCH_ID = "116889604984157253";
 const LIVE_REFRESH_INTERVAL_MS = 3_000;
 const EVENT_TOAST_LIFETIME_MS = 7_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
+const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
 
 type TeamResult = { gameWins: number; outcome: "win" | "loss" | null };
 type MatchTeam = {
@@ -348,6 +349,7 @@ export default function Home() {
   const [lastUpdated, setLastUpdated] = useState<string>();
   const [eventToasts, setEventToasts] = useState<EventToast[]>([]);
   const [loadedScheduleDate, setLoadedScheduleDate] = useState("");
+  const [viewModeRestored, setViewModeRestored] = useState(false);
   const refreshInFlight = useRef(false);
   const scannedMatchId = useRef("");
   const previousEventFrames = useRef<Record<string, WindowFrame>>({});
@@ -692,6 +694,24 @@ export default function Home() {
     const timeout = window.setTimeout(() => void loadEvents(date), 0);
     return () => window.clearTimeout(timeout);
   }, [date, loadEvents]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const savedMode = Number(
+        window.localStorage.getItem(VIEW_MODE_STORAGE_KEY),
+      );
+      if (savedMode === 1 || savedMode === 2 || savedMode === 4) {
+        setViewMode(savedMode);
+      }
+      setViewModeRestored(true);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    if (!viewModeRestored) return;
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, String(viewMode));
+  }, [viewMode, viewModeRestored]);
 
   useEffect(() => {
     if (viewMode === 1) return;
