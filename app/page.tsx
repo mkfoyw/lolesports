@@ -686,6 +686,7 @@ export default function Home() {
   );
 
   const frame = windowData?.frames.at(-1);
+  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const detailsFrame = useMemo(() => {
     if (!detailsData?.frames.length || !frame) return undefined;
     const target = new Date(frame.rfc460Timestamp).getTime();
@@ -696,7 +697,6 @@ export default function Home() {
         : nearest,
     );
   }, [detailsData, frame]);
-  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const selectedGame = selectedMatch?.match.games.find(
     (game) => game.id === selectedGameId,
   );
@@ -1246,6 +1246,7 @@ function MultiMatchCard({
   }, [autoRefresh, refresh, selectedGameId]);
 
   const frame = windowData?.frames.at(-1);
+  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const blueMetadata = windowData?.gameMetadata.blueTeamMetadata;
   const redMetadata = windowData?.gameMetadata.redTeamMetadata;
   const blueTeam = match.matchTeams.find(
@@ -1255,7 +1256,6 @@ function MultiMatchCard({
     (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
   ) ?? match.matchTeams[1];
   const selectedGame = match.match.games.find((game) => game.id === selectedGameId);
-  const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
   const totalDelta = frame
     ? frame.blueTeam.totalGold - frame.redTeam.totalGold
     : 0;

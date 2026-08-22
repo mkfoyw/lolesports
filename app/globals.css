@@ -935,7 +935,7 @@ footer {
   border-top: 1px solid rgba(255, 255, 255, 0.055);
   display: grid;
   gap: 15px;
-  grid-template-columns: 48px minmax(120px, 1fr) 92px 52px 60px minmax(154px, 0.8fr);
+  grid-template-columns: 48px minmax(120px, 1fr) 92px 52px 60px 86px minmax(140px, 0.75fr);
   min-height: 67px;
   padding: 8px 20px;
   position: relative;
@@ -1055,6 +1055,22 @@ footer {
 
 .player-stat.gold strong {
   color: var(--gold);
+}
+
+.player-stat.matchup-delta strong {
+  color: #aab4c2;
+}
+
+.player-stat.matchup-delta.positive strong {
+  color: var(--green);
+}
+
+.player-stat.matchup-delta.negative strong {
+  color: var(--red);
+}
+
+.player-stat.matchup-delta span {
+  white-space: nowrap;
 }
 
 .items {
