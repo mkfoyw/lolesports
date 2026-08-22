@@ -83,7 +83,7 @@ input:focus-visible {
 
 .multi-mode .control-deck {
   grid-template-columns: auto auto;
-  justify-content: space-between;
+  justify-content: start;
   padding-bottom: 14px;
   padding-top: 16px;
 }
@@ -645,6 +645,27 @@ footer {
   background: rgba(255, 82, 110, 0.1);
   border-color: rgba(255, 82, 110, 0.3);
   color: #ff7188;
+}
+
+.status-badge.finished {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #98a3b4;
+}
+
+.status-badge.upcoming {
+  background: rgba(53, 212, 255, 0.055);
+  border-color: rgba(53, 212, 255, 0.16);
+  color: #8ea5b3;
+}
+
+.score-kill-label {
+  color: #657184;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  margin-top: 9px;
+  text-transform: uppercase;
 }
 
 .kill-score {
@@ -1237,9 +1258,26 @@ footer {
 
 .multi-empty {
   align-items: center;
+  color: inherit;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  padding: 24px;
+  transition: background 150ms ease, border-color 150ms ease;
+  width: 100%;
+}
+
+.multi-empty:hover:not(:disabled),
+.multi-empty:focus-visible {
+  background:
+    linear-gradient(100deg, rgba(53, 212, 255, 0.11), transparent 44%, rgba(255, 82, 110, 0.08)),
+    rgba(12, 16, 24, 0.96);
+  border-color: rgba(53, 212, 255, 0.28);
+}
+
+.multi-empty:disabled {
+  cursor: default;
 }
 
 .multi-empty strong {
@@ -1272,6 +1310,13 @@ footer {
   font-family: var(--font-geist-mono), monospace;
   margin: 0 10px;
   padding: 0 10px;
+}
+
+.multi-series-score {
+  border-left: 1px solid var(--line);
+  color: #a5afbe;
+  margin-left: 10px;
+  padding-left: 10px;
 }
 
 .multi-scoreboard {
@@ -1341,6 +1386,19 @@ footer {
   font-family: var(--font-geist-mono), monospace;
   gap: 8px;
   margin-top: 6px;
+}
+
+.multi-kill-label {
+  color: #667184;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 6px;
+  letter-spacing: 0.1em;
+  margin-top: 5px;
+  text-transform: uppercase;
+}
+
+.multi-kill-label + div {
+  margin-top: 2px;
 }
 
 .multi-score-center > div strong {
@@ -1774,6 +1832,23 @@ footer {
 
 .slots-4 .multi-card-footer {
   min-height: 22px;
+}
+
+.multi-match-card.is-idle .multi-scoreboard {
+  min-height: 82px;
+}
+
+.multi-match-card.is-idle .multi-card-waiting {
+  min-height: 104px;
+}
+
+.slots-4 .multi-match-card.is-idle,
+.slots-4 .multi-empty {
+  min-height: 220px;
+}
+
+.slots-4 .multi-match-card.is-idle .multi-card-waiting {
+  min-height: 76px;
 }
 
 .waiting-panel {

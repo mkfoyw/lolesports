@@ -902,9 +902,18 @@ export default function Home() {
               )}
             </div>
             <div className="score-center">
-              <span className={`status-badge ${status === "LIVE" ? "live" : ""}`}>
+              <span
+                className={`status-badge ${
+                  status === "LIVE"
+                    ? "live"
+                    : status === "本局结束"
+                      ? "finished"
+                      : "upcoming"
+                }`}
+              >
                 {status}
               </span>
+              <span className="score-kill-label">本局击杀</span>
               <div className="kill-score">
                 <strong>{frame?.blueTeam.totalKills ?? "–"}</strong>
                 <span>:</span>
@@ -1117,6 +1126,7 @@ function MultiMatchBoard({
               <select
                 aria-label={`选择第 ${slot + 1} 场比赛`}
                 disabled={events.length === 0}
+                id={`multi-match-select-${slot}`}
                 onChange={(event) => onSelectMatch(slot, event.target.value)}
                 value={match?.id ?? ""}
               >
@@ -1136,10 +1146,21 @@ function MultiMatchBoard({
                 refreshTick={refreshTick}
               />
             ) : (
-              <div className="multi-empty">
-                <strong>尚未选择比赛</strong>
-                <span>从上方列表选择后，这个位置才会开始读取数据。</span>
-              </div>
+              <button
+                className="multi-empty"
+                disabled={events.length === 0}
+                onClick={() => {
+                  const selector = document.getElementById(
+                    `multi-match-select-${slot}`,
+                  ) as (HTMLSelectElement & { showPicker?: () => void }) | null;
+                  selector?.focus();
+                  selector?.showPicker?.();
+                }}
+                type="button"
+              >
+                <strong>＋ 添加比赛</strong>
+                <span>点击后从当天赛程中选择一场比赛</span>
+              </button>
             )}
           </div>
         );
@@ -1293,6 +1314,8 @@ function MultiMatchCard({
     (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
   ) ?? match.matchTeams[1];
   const selectedGame = match.match.games.find((game) => game.id === selectedGameId);
+  const blueSeriesWins = blueTeam?.result?.gameWins ?? 0;
+  const redSeriesWins = redTeam?.result?.gameWins ?? 0;
   const totalDelta = frame
     ? frame.blueTeam.totalGold - frame.redTeam.totalGold
     : 0;
@@ -1310,11 +1333,14 @@ function MultiMatchCard({
         : "未开局";
 
   return (
-    <article className="multi-match-card">
+    <article className={`multi-match-card ${frame ? "has-data" : "is-idle"}`}>
       <header className="multi-card-context">
         <span>{match.league.name}</span>
         <strong>{formatStartTime(match.startTime)}</strong>
         <span>BO{match.match.strategy.count}</span>
+        <span className="multi-series-score">
+          系列 {blueSeriesWins}–{redSeriesWins}
+        </span>
       </header>
 
       <div className="multi-scoreboard">
@@ -1328,9 +1354,18 @@ function MultiMatchCard({
           </div>
         </div>
         <div className="multi-score-center">
-          <span className={`status-badge ${status === "LIVE" ? "live" : ""}`}>
+          <span
+            className={`status-badge ${
+              status === "LIVE"
+                ? "live"
+                : status === "本局结束"
+                  ? "finished"
+                  : "upcoming"
+            }`}
+          >
             {status}
           </span>
+          <span className="multi-kill-label">本局击杀</span>
           <div>
             <strong>{frame?.blueTeam.totalKills ?? "–"}</strong>
             <span>:</span>
