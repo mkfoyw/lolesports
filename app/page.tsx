@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 
 const FEED_URL = "https://feed.lolesports.com/livestats/v1";
 const FEATURED_MATCH_ID = "116889604984157253";
-const LIVE_REFRESH_INTERVAL_MS = 3_000;
+const LIVE_REFRESH_INTERVAL_MS = 1_000;
 const EVENT_TOAST_LIFETIME_MS = 7_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
@@ -976,7 +976,7 @@ export default function Home() {
             type="button"
           >
             <span className="pulse-dot" />
-            {autoRefresh ? "3 秒自动刷新" : "自动刷新已暂停"}
+            {autoRefresh ? "1 秒自动刷新" : "自动刷新已暂停"}
           </button>
           <span className="last-sync">
             {viewMode === 1 ? (
@@ -1701,7 +1701,7 @@ function MultiMatchCard({
 
       <div className="multi-card-footer">
         <span>数据帧 {formatTimestamp(frame?.rfc460Timestamp)}</span>
-        <span>{autoRefresh ? "3 秒刷新" : "已暂停"} · {formatTimestamp(lastUpdated)}</span>
+        <span>{autoRefresh ? "1 秒刷新" : "已暂停"} · {formatTimestamp(lastUpdated)}</span>
       </div>
     </article>
   );
