@@ -13,6 +13,7 @@ const FEED_URL = "https://feed.lolesports.com/livestats/v1";
 const FEATURED_MATCH_ID = "116889604984157253";
 const LIVE_REFRESH_INTERVAL_MS = 3_000;
 const EVENT_TOAST_LIFETIME_MS = 7_000;
+const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 
 type TeamResult = { gameWins: number; outcome: "win" | "loss" | null };
 type MatchTeam = {
@@ -115,6 +116,31 @@ type EventToast = {
   detail: string;
 };
 type ViewMode = 1 | 2 | 4;
+type SavedMatchSelection = {
+  singleMatchId: string;
+  multiMatchIds: string[];
+};
+
+function readSavedMatchSelection(date: string): SavedMatchSelection | null {
+  try {
+    const raw = window.localStorage.getItem(
+      `${MATCH_SELECTION_STORAGE_PREFIX}:${date}`,
+    );
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedMatchSelection>;
+    return {
+      singleMatchId:
+        typeof parsed.singleMatchId === "string" ? parsed.singleMatchId : "",
+      multiMatchIds: Array.isArray(parsed.multiMatchIds)
+        ? parsed.multiMatchIds
+            .slice(0, 4)
+            .map((matchId) => (typeof matchId === "string" ? matchId : ""))
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 function dateInShanghai() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -321,6 +347,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<string>();
   const [eventToasts, setEventToasts] = useState<EventToast[]>([]);
+  const [loadedScheduleDate, setLoadedScheduleDate] = useState("");
   const refreshInFlight = useRef(false);
   const scannedMatchId = useRef("");
   const previousEventFrames = useRef<Record<string, WindowFrame>>({});
@@ -334,24 +361,36 @@ export default function Home() {
 
   const changeViewMode = useCallback(
     (nextMode: ViewMode) => {
-      setViewMode(nextMode);
       setError("");
-      if (nextMode > 1) {
-        setMultiMatchIds((current) =>
-          Array.from({ length: nextMode }, (_, slot) => current[slot] ?? ""),
-        );
-      } else {
+      if (nextMode === 1) {
+        const firstMultiMatch = multiMatchIds[0];
+        if (firstMultiMatch) setSelectedMatchId(firstMultiMatch);
         scannedMatchId.current = "";
+      } else {
+        setMultiMatchIds((current) => {
+          const next = Array.from(
+            { length: 4 },
+            (_, slot) => current[slot] ?? "",
+          );
+          if (viewMode === 1 && selectedMatchId) {
+            next[0] = selectedMatchId;
+            for (let slot = 1; slot < next.length; slot += 1) {
+              if (next[slot] === selectedMatchId) next[slot] = "";
+            }
+          }
+          return next;
+        });
       }
+      setViewMode(nextMode);
     },
-    [],
+    [multiMatchIds, selectedMatchId, viewMode],
   );
 
   const selectMultiMatch = useCallback(
     (slot: number, matchId: string) => {
       setMultiMatchIds((current) => {
         const next = Array.from(
-          { length: viewMode },
+          { length: 4 },
           (_, index) => current[index] ?? "",
         );
         if (matchId) {
@@ -363,7 +402,7 @@ export default function Home() {
         return next;
       });
     },
-    [viewMode],
+    [],
   );
 
   const dismissEventToast = useCallback((id: number) => {
@@ -504,11 +543,31 @@ export default function Home() {
           (left, right) =>
             new Date(left.startTime).getTime() - new Date(right.startTime).getTime(),
         );
+      const savedSelection = readSavedMatchSelection(targetDate);
       setEvents(matches);
+      setMultiMatchIds((current) => {
+        const currentContainsValidMatch = current.some((matchId) =>
+          matches.some((match) => match.id === matchId),
+        );
+        const source = currentContainsValidMatch
+          ? current
+          : savedSelection?.multiMatchIds ?? [];
+        return Array.from({ length: 4 }, (_, slot) => {
+          const matchId = source[slot] ?? "";
+          return matches.some((match) => match.id === matchId) ? matchId : "";
+        });
+      });
       setSelectedMatchId((current) => {
         if (matches.some((match) => match.id === current)) return current;
-        const saved = window.localStorage.getItem("rift-live-match");
-        if (saved && matches.some((match) => match.id === saved)) return saved;
+        const savedCandidates = [
+          savedSelection?.singleMatchId,
+          savedSelection?.multiMatchIds[0],
+          window.localStorage.getItem("rift-live-match"),
+        ];
+        const saved = savedCandidates.find(
+          (matchId) => matchId && matches.some((match) => match.id === matchId),
+        );
+        if (saved) return saved;
         const featured = matches.find((match) => match.id === FEATURED_MATCH_ID);
         const live = matches.find((match) => match.state === "inProgress");
         const now = Date.now();
@@ -521,6 +580,7 @@ export default function Home() {
         }, undefined);
         return featured?.id ?? live?.id ?? closest?.id ?? "";
       });
+      setLoadedScheduleDate(targetDate);
     } catch (caught) {
       setEvents([]);
       setError(caught instanceof Error ? caught.message : "无法读取赛事列表");
@@ -637,7 +697,7 @@ export default function Home() {
     if (viewMode === 1) return;
     const timeout = window.setTimeout(() => {
       setMultiMatchIds((current) =>
-        Array.from({ length: viewMode }, (_, slot) => {
+        Array.from({ length: 4 }, (_, slot) => {
           const matchId = current[slot] ?? "";
           return events.some((event) => event.id === matchId) ? matchId : "";
         }),
@@ -645,6 +705,27 @@ export default function Home() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [events, viewMode]);
+
+  useEffect(() => {
+    if (scheduleLoading || loadedScheduleDate !== date) return;
+    const selection: SavedMatchSelection = {
+      singleMatchId: selectedMatchId,
+      multiMatchIds: Array.from(
+        { length: 4 },
+        (_, slot) => multiMatchIds[slot] ?? "",
+      ),
+    };
+    window.localStorage.setItem(
+      `${MATCH_SELECTION_STORAGE_PREFIX}:${date}`,
+      JSON.stringify(selection),
+    );
+  }, [
+    date,
+    loadedScheduleDate,
+    multiMatchIds,
+    scheduleLoading,
+    selectedMatchId,
+  ]);
 
   useEffect(() => {
     if (viewMode !== 1) return;
@@ -871,7 +952,9 @@ export default function Home() {
         ) : (
           <button
             className="scan-button"
-            disabled={scheduleLoading || !multiMatchIds.some(Boolean)}
+            disabled={
+              scheduleLoading || !multiMatchIds.slice(0, viewMode).some(Boolean)
+            }
             onClick={() => setMultiRefreshTick((current) => current + 1)}
             type="button"
           >
@@ -1121,7 +1204,7 @@ function MultiMatchBoard({
         const match = events.find((event) => event.id === matchIds[slot]);
         return (
           <div className="multi-match-slot" key={`${slot}-${match?.id ?? "empty"}`}>
-            <label className="multi-match-select">
+            <div className="multi-match-select">
               <span>比赛 {slot + 1}</span>
               <select
                 aria-label={`选择第 ${slot + 1} 场比赛`}
@@ -1137,7 +1220,17 @@ function MultiMatchBoard({
                   </option>
                 ))}
               </select>
-            </label>
+              <button
+                aria-label={`清空第 ${slot + 1} 场比赛`}
+                className="multi-match-clear"
+                disabled={!match}
+                onClick={() => onSelectMatch(slot, "")}
+                title="清空这场比赛"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
             {match ? (
               <MultiMatchCard
                 autoRefresh={autoRefresh}

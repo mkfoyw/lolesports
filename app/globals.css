@@ -1214,9 +1214,36 @@ footer {
   border-radius: 11px 11px 0 0;
   display: grid;
   gap: 10px;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) 24px;
   height: 38px;
   padding: 0 12px;
+}
+
+.multi-match-clear {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: #8994a5;
+  cursor: pointer;
+  display: flex;
+  font-size: 15px;
+  height: 22px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 22px;
+}
+
+.multi-match-clear:hover:not(:disabled) {
+  background: rgba(255, 82, 110, 0.1);
+  border-color: rgba(255, 82, 110, 0.28);
+  color: var(--red);
+}
+
+.multi-match-clear:disabled {
+  cursor: default;
+  opacity: 0.2;
 }
 
 .multi-match-select > span {
@@ -1739,11 +1766,8 @@ footer {
 .player-matchup-table.compact .player-matchup-header,
 .player-matchup-table.compact .player-matchup-row {
   gap: 3px;
-  grid-template-columns: minmax(112px, 132px) 34px 24px 24px 24px 58px 90px 58px 24px 24px 24px 34px minmax(112px, 132px);
-  justify-content: center;
-  margin-left: auto;
-  margin-right: auto;
-  max-width: 736px;
+  grid-template-columns: minmax(120px, 1fr) 34px 24px 24px 24px 58px 90px 58px 24px 24px 24px 34px minmax(120px, 1fr);
+  width: 100%;
 }
 
 .player-matchup-table.compact .player-matchup-row {
@@ -1778,14 +1802,28 @@ footer {
   gap: 7px;
   min-height: 30px;
   padding: 2px 5px;
+  width: min(100%, 170px);
 }
 
 .player-matchup-table.compact .matchup-player.blue {
   border-left-color: rgba(53, 212, 255, 0.34);
+  justify-content: flex-start;
+  justify-self: start;
 }
 
 .player-matchup-table.compact .matchup-player.red {
   border-right-color: rgba(255, 82, 110, 0.34);
+  justify-self: end;
+}
+
+.player-matchup-table.compact .player-matchup-header .blue-label {
+  padding-left: 5px;
+  text-align: left;
+}
+
+.player-matchup-table.compact .player-matchup-header .red-label {
+  padding-right: 5px;
+  text-align: right;
 }
 
 .player-matchup-table.compact .matchup-player-copy strong {
