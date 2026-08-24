@@ -1016,8 +1016,8 @@ footer {
   display: grid;
   gap: 15px;
   grid-template-columns: 48px minmax(120px, 1fr) 92px 52px 60px 86px minmax(140px, 0.75fr);
-  min-height: 67px;
-  padding: 8px 20px;
+  min-height: 84px;
+  padding: 12px 20px;
   position: relative;
   transition: background 130ms ease;
 }
@@ -1096,7 +1096,7 @@ footer {
 .kda-block span,
 .player-stat span {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .health-track {
@@ -1124,7 +1124,7 @@ footer {
 .kda-block strong,
 .player-stat strong {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 12px;
+  font-size: 17px;
 }
 
 .kda-block strong span {
@@ -1190,8 +1190,8 @@ footer {
 .slots-2 .multi-rosters .player-row {
   gap: 8px;
   grid-template-columns: 38px minmax(92px, 1fr) 72px 40px 54px 76px minmax(104px, 0.75fr);
-  min-height: 54px;
-  padding: 6px 12px;
+  min-height: 70px;
+  padding: 10px 12px;
 }
 
 .slots-2 .multi-rosters .champion-wrap,
@@ -1203,7 +1203,7 @@ footer {
 .slots-2 .multi-rosters .player-identity strong,
 .slots-2 .multi-rosters .kda-block strong,
 .slots-2 .multi-rosters .player-stat strong {
-  font-size: 10px;
+  font-size: 15px;
 }
 
 .slots-2 .multi-rosters .items {
