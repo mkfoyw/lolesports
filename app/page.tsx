@@ -13,6 +13,8 @@ import type { ReactNode } from "react";
 const FEED_URL = "https://feed.lolesports.com/livestats/v1";
 const FEATURED_MATCH_ID = "116889604984157253";
 const LIVE_REFRESH_INTERVAL_MS = 1_000;
+// LiveStats rejects 10-second windows that end less than 220 seconds ago.
+const LIVE_WINDOW_OFFSETS_SECONDS = [240, 250, 270, 300, 360, 480];
 const EVENT_TOAST_LIFETIME_MS = 7_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
@@ -321,7 +323,7 @@ async function fetchDetails(gameId: string, startingTime: string) {
 
 async function fetchLatestTelemetry(gameId: string) {
   let lastError: unknown;
-  for (const secondsAgo of [30, 60, 90, 180]) {
+  for (const secondsAgo of LIVE_WINDOW_OFFSETS_SECONDS) {
     const startingTime = recentStartingTime(secondsAgo);
     try {
       const windowPayload = await fetchRecentWindow(gameId, startingTime);
@@ -1353,7 +1355,7 @@ export default function Home() {
 
       <footer>
         <span>RIFT LIVE · LOCAL</span>
-        <p>赛程来自 LoL Esports，实时帧来自公开 LiveStats。官方赛程状态可能存在延迟。</p>
+        <p>赛程来自 LoL Esports，数据来自公开 LiveStats。比赛数据约延迟 4 分钟，页面每秒检查更新。</p>
       </footer>
     </main>
   );
