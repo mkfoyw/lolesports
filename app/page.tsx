@@ -19,6 +19,7 @@ const EVENT_TOAST_LIFETIME_MS = 7_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
 const SPEECH_PREFERENCES_STORAGE_KEY = "rift-live-speech-preferences";
+const SPEECH_ENABLED_STORAGE_KEY = "rift-live-speech-enabled";
 const AUTO_FEMALE_VOICE = "auto-female";
 const FEMALE_VOICE_NAME = /ting.?ting|meijia|sin.?ji|hui.?hui|xiaoxiao|xiaoyi|xiaohan|xiaomeng|xiaoqiu|xiaoshuang|lili|yaoyao|yating|female|woman|女声/i;
 const LOL_WIKI_BASE_URL = "https://lol.fandom.com/wiki/";
@@ -655,6 +656,22 @@ export default function Home() {
       } catch {
         // Ignore outdated or blocked browser storage.
       }
+      try {
+        const saved = JSON.parse(
+          window.localStorage.getItem(SPEECH_ENABLED_STORAGE_KEY) ?? "null",
+        ) as { single?: unknown; multi?: unknown } | null;
+        if (typeof saved?.single === "boolean") {
+          setSingleSpeechEnabled(saved.single);
+        }
+        const savedMulti = saved?.multi;
+        if (Array.isArray(savedMulti)) {
+          setMultiSpeechEnabled(
+            Array.from({ length: 4 }, (_, slot) => savedMulti[slot] === true),
+          );
+        }
+      } catch {
+        // Keep speech notifications off if browser storage is unavailable.
+      }
       setSpeechPreferencesRestored(true);
     }, 0);
     if (!("speechSynthesis" in window)) {
@@ -680,6 +697,18 @@ export default function Home() {
       // Speech still works when browser storage is unavailable.
     }
   }, [speechPreferences, speechPreferencesRestored]);
+
+  useEffect(() => {
+    if (!speechPreferencesRestored) return;
+    try {
+      window.localStorage.setItem(
+        SPEECH_ENABLED_STORAGE_KEY,
+        JSON.stringify({ single: singleSpeechEnabled, multi: multiSpeechEnabled }),
+      );
+    } catch {
+      // Speech switches still work for this visit when storage is unavailable.
+    }
+  }, [multiSpeechEnabled, singleSpeechEnabled, speechPreferencesRestored]);
 
   const selectedMatch = useMemo(
     () => events.find((event) => event.id === selectedMatchId),
