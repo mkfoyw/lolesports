@@ -16,6 +16,7 @@ const LIVE_REFRESH_INTERVAL_MS = 1_000;
 // LiveStats rejects 10-second windows that end less than 220 seconds ago.
 const LIVE_WINDOW_OFFSETS_SECONDS = [240, 250, 270, 300, 360, 480];
 const EVENT_TOAST_LIFETIME_MS = 7_000;
+const RESOURCE_SUMMARY_DELAY_MS = 10_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
 const SPEECH_PREFERENCES_STORAGE_KEY = "rift-live-speech-preferences";
@@ -147,6 +148,11 @@ type SavedMatchSelection = {
   multiMatchIds: string[];
 };
 type SpeechPreferences = { voiceURI: string; rate: number };
+type ResourceSummarySnapshot = {
+  gameId: string;
+  frame: WindowFrame;
+  teamCodes: { blue: string; red: string };
+};
 
 function readSavedMatchSelection(date: string): SavedMatchSelection | null {
   try {
@@ -588,6 +594,41 @@ function speakEventToast(
   );
 }
 
+function resourceSummaryText(
+  { frame, teamCodes }: ResourceSummarySnapshot,
+  matchNumber?: number,
+) {
+  const goldDifference = frame.blueTeam.totalGold - frame.redTeam.totalGold;
+  const goldSummary = goldDifference === 0
+    ? `${teamCodes.blue} 和 ${teamCodes.red} 经济持平`
+    : goldDifference > 0
+      ? `${teamCodes.blue} 领先 ${teamCodes.red} ${goldDifference.toLocaleString("zh-CN")} 经济`
+      : `${teamCodes.red} 领先 ${teamCodes.blue} ${Math.abs(goldDifference).toLocaleString("zh-CN")} 经济`;
+  return `${matchNumber ? `第${matchNumber}场，` : ""}${goldSummary}。${teamCodes.blue} 有 ${frame.blueTeam.dragons.length} 条龙，${teamCodes.red} 有 ${frame.redTeam.dragons.length} 条龙。`;
+}
+
+function resetResourceSummaryTimer(
+  timerRef: { current: number | null },
+  snapshotRef: { current: ResourceSummarySnapshot | null },
+  enabledRef: { current: boolean },
+  preferencesRef: { current: SpeechPreferences },
+  voicesRef: { current: SpeechSynthesisVoice[] },
+  gameId: string,
+  matchNumber?: number,
+) {
+  if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  timerRef.current = window.setTimeout(() => {
+    timerRef.current = null;
+    const snapshot = snapshotRef.current;
+    if (!enabledRef.current || !snapshot || snapshot.gameId !== gameId) return;
+    speakText(
+      resourceSummaryText(snapshot, matchNumber),
+      preferencesRef.current,
+      voicesRef.current,
+    );
+  }, RESOURCE_SUMMARY_DELAY_MS);
+}
+
 export default function Home() {
   const [date, setDate] = useState(dateInShanghai);
   const [events, setEvents] = useState<MatchEvent[]>([]);
@@ -623,12 +664,18 @@ export default function Home() {
   const previousEventFrames = useRef<Record<string, WindowFrame>>({});
   const toastSequence = useRef(0);
   const toastTimers = useRef<Map<number, number>>(new Map());
+  const resourceSummaryTimer = useRef<number | null>(null);
+  const resourceSummarySnapshot = useRef<ResourceSummarySnapshot | null>(null);
   const singleSpeechEnabledRef = useRef(singleSpeechEnabled);
   const speechPreferencesRef = useRef(speechPreferences);
   const speechVoicesRef = useRef(speechVoices);
 
   useEffect(() => {
     singleSpeechEnabledRef.current = singleSpeechEnabled;
+    if (!singleSpeechEnabled && resourceSummaryTimer.current !== null) {
+      window.clearTimeout(resourceSummaryTimer.current);
+      resourceSummaryTimer.current = null;
+    }
   }, [singleSpeechEnabled]);
 
   useEffect(() => {
@@ -781,6 +828,11 @@ export default function Home() {
   const clearEventToasts = useCallback(() => {
     toastTimers.current.forEach((timer) => window.clearTimeout(timer));
     toastTimers.current.clear();
+    if (resourceSummaryTimer.current !== null) {
+      window.clearTimeout(resourceSummaryTimer.current);
+      resourceSummaryTimer.current = null;
+    }
+    resourceSummarySnapshot.current = null;
     setEventToasts([]);
   }, []);
 
@@ -796,6 +848,14 @@ export default function Home() {
         teamCodes,
         speechPreferencesRef.current,
         speechVoicesRef.current,
+      );
+      resetResourceSummaryTimer(
+        resourceSummaryTimer,
+        resourceSummarySnapshot,
+        singleSpeechEnabledRef,
+        speechPreferencesRef,
+        speechVoicesRef,
+        toast.gameId,
       );
     }
     const timer = window.setTimeout(() => {
@@ -829,6 +889,7 @@ export default function Home() {
           rawTeamId(team) === payload.gameMetadata.redTeamMetadata.esportsTeamId,
         )?.code ?? selectedMatch?.matchTeams[1]?.code ?? "红方",
       };
+      resourceSummarySnapshot.current = { gameId, frame: next, teamCodes };
       frameEventToasts(gameId, previous, next).forEach((toast) => addEventToast(toast, teamCodes));
     },
     [addEventToast, selectedMatch],
@@ -1085,6 +1146,13 @@ export default function Home() {
   }, [autoRefresh, refreshGame, selectedGameId, viewMode]);
 
   useEffect(() => {
+    if (viewMode !== 1 && resourceSummaryTimer.current !== null) {
+      window.clearTimeout(resourceSummaryTimer.current);
+      resourceSummaryTimer.current = null;
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
     if (!autoRefresh) return;
     const interval = window.setInterval(() => void loadEvents(date), 60_000);
     return () => window.clearInterval(interval);
@@ -1094,6 +1162,9 @@ export default function Home() {
     () => () => {
       toastTimers.current.forEach((timer) => window.clearTimeout(timer));
       toastTimers.current.clear();
+      if (resourceSummaryTimer.current !== null) {
+        window.clearTimeout(resourceSummaryTimer.current);
+      }
     },
     [],
   );
@@ -1249,7 +1320,7 @@ export default function Home() {
                 试听
               </button>
               <p>{chineseSpeechVoices.length
-                ? "只朗读队伍和事件标题，用同一种声音朗读中英文。"
+                ? "事件通知只读队伍和标题；10 秒内没有新通知时，播报经济差和双方龙数。中英文使用同一种声音。"
                 : "当前浏览器没有可用中文语音，请在系统中安装中文语音。"}</p>
             </div>
           </details>
@@ -1698,6 +1769,8 @@ function MultiMatchCard({
   const previousEventFrames = useRef<Record<string, WindowFrame>>({});
   const toastSequence = useRef(0);
   const toastTimers = useRef<Map<number, number>>(new Map());
+  const resourceSummaryTimer = useRef<number | null>(null);
+  const resourceSummarySnapshot = useRef<ResourceSummarySnapshot | null>(null);
   const speechEnabledRef = useRef(speechEnabled);
   const speechPreferencesRef = useRef(speechPreferences);
   const speechVoicesRef = useRef(speechVoices);
@@ -1708,6 +1781,10 @@ function MultiMatchCard({
 
   useEffect(() => {
     speechEnabledRef.current = speechEnabled;
+    if (!speechEnabled && resourceSummaryTimer.current !== null) {
+      window.clearTimeout(resourceSummaryTimer.current);
+      resourceSummaryTimer.current = null;
+    }
   }, [speechEnabled]);
 
   useEffect(() => {
@@ -1728,6 +1805,11 @@ function MultiMatchCard({
   const clearEventToasts = useCallback(() => {
     toastTimers.current.forEach((timer) => window.clearTimeout(timer));
     toastTimers.current.clear();
+    if (resourceSummaryTimer.current !== null) {
+      window.clearTimeout(resourceSummaryTimer.current);
+      resourceSummaryTimer.current = null;
+    }
+    resourceSummarySnapshot.current = null;
     setEventToasts([]);
   }, []);
 
@@ -1762,6 +1844,7 @@ function MultiMatchCard({
             rawTeamId(team) === payload.gameMetadata.redTeamMetadata.esportsTeamId,
           )?.code ?? match.matchTeams[1]?.code ?? "红方",
         };
+        resourceSummarySnapshot.current = { gameId, frame: next, teamCodes };
         frameEventToasts(gameId, previous, next).forEach((toast) => {
           addEventToast(toast);
           if (speechEnabledRef.current) {
@@ -1770,6 +1853,15 @@ function MultiMatchCard({
               teamCodes,
               speechPreferencesRef.current,
               speechVoicesRef.current,
+              matchNumber,
+            );
+            resetResourceSummaryTimer(
+              resourceSummaryTimer,
+              resourceSummarySnapshot,
+              speechEnabledRef,
+              speechPreferencesRef,
+              speechVoicesRef,
+              gameId,
               matchNumber,
             );
           }
@@ -1886,6 +1978,9 @@ function MultiMatchCard({
     () => () => {
       toastTimers.current.forEach((timer) => window.clearTimeout(timer));
       toastTimers.current.clear();
+      if (resourceSummaryTimer.current !== null) {
+        window.clearTimeout(resourceSummaryTimer.current);
+      }
     },
     [],
   );
