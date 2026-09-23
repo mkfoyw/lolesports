@@ -581,7 +581,7 @@ function speakEventToast(
       ? teamCodes.red
       : "比赛";
   speakText(
-    `${matchNumber ? `第${matchNumber}场，` : ""}${eventKindLabel(toast.kind)}，${teamLabel}，${toast.title}。${toast.detail}`,
+    `${matchNumber ? `第${matchNumber}场，` : ""}${teamLabel}，${toast.title}`,
     preferences,
     voices,
   );
@@ -1213,14 +1213,14 @@ export default function Home() {
                 disabled={chineseSpeechVoices.length === 0}
                 onClick={() => {
                   window.speechSynthesis?.cancel();
-                  speakText("语音测试：KILL，SLY，拿到一次击杀。总击杀 1", speechPreferences, speechVoices);
+                  speakText("SLY，拿到一次击杀", speechPreferences, speechVoices);
                 }}
                 type="button"
               >
                 试听
               </button>
               <p>{chineseSpeechVoices.length
-                ? "按通知文字顺序，用同一种声音朗读中英文。"
+                ? "只朗读队伍和事件标题，用同一种声音朗读中英文。"
                 : "当前浏览器没有可用中文语音，请在系统中安装中文语音。"}</p>
             </div>
           </details>
