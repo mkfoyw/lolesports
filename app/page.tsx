@@ -18,6 +18,10 @@ const LIVE_WINDOW_OFFSETS_SECONDS = [240, 250, 270, 300, 360, 480];
 const EVENT_TOAST_LIFETIME_MS = 7_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
+const SPEECH_PREFERENCES_STORAGE_KEY = "rift-live-speech-preferences";
+const AUTO_FEMALE_VOICE = "auto-female";
+const SYSTEM_VOICE = "system";
+const FEMALE_VOICE_NAME = /ting.?ting|meijia|sin.?ji|hui.?hui|xiaoxiao|xiaoyi|xiaohan|xiaomeng|xiaoqiu|xiaoshuang|lili|yaoyao|yating|female|woman|女声/i;
 const LOL_WIKI_BASE_URL = "https://lol.fandom.com/wiki/";
 const TEAM_WIKI_SLUGS: Record<string, string> = {
   BFX: "BNK_FEARX",
@@ -142,6 +146,7 @@ type SavedMatchSelection = {
   singleMatchId: string;
   multiMatchIds: string[];
 };
+type SpeechPreferences = { voiceURI: string; rate: number };
 
 function readSavedMatchSelection(date: string): SavedMatchSelection | null {
   try {
@@ -533,10 +538,10 @@ function EventToastRegion({
   );
 }
 
-function speakEventToast(
-  toast: Omit<EventToast, "id">,
-  blueTeamCode: string,
-  redTeamCode: string,
+function speakText(
+  text: string,
+  preferences: SpeechPreferences,
+  voices: SpeechSynthesisVoice[],
 ) {
   if (
     !("speechSynthesis" in window) ||
@@ -544,15 +549,34 @@ function speakEventToast(
   ) {
     return;
   }
+  const chineseVoices = voices.filter((voice) => /^zh([-_]|$)/i.test(voice.lang));
+  const voice = preferences.voiceURI === SYSTEM_VOICE
+    ? undefined
+    : preferences.voiceURI === AUTO_FEMALE_VOICE
+      ? chineseVoices.find((candidate) => FEMALE_VOICE_NAME.test(candidate.name))
+        ?? chineseVoices.find((candidate) => candidate.default)
+        ?? chineseVoices[0]
+      : voices.find((candidate) => candidate.voiceURI === preferences.voiceURI);
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = voice?.lang ?? "zh-CN";
+  if (voice) utterance.voice = voice;
+  utterance.rate = preferences.rate;
+  window.speechSynthesis.speak(utterance);
+}
+
+function speakEventToast(
+  toast: Omit<EventToast, "id">,
+  blueTeamCode: string,
+  redTeamCode: string,
+  preferences: SpeechPreferences,
+  voices: SpeechSynthesisVoice[],
+) {
   const teamCode = toast.side === "blue"
     ? blueTeamCode
     : toast.side === "red"
       ? redTeamCode
       : "本局比赛";
-  const utterance = new SpeechSynthesisUtterance(`${teamCode}，${toast.title}`);
-  utterance.lang = "zh-CN";
-  utterance.rate = 1.08;
-  window.speechSynthesis.speak(utterance);
+  speakText(`${teamCode}，${toast.title}`, preferences, voices);
 }
 
 export default function Home() {
@@ -560,6 +584,12 @@ export default function Home() {
   const [events, setEvents] = useState<MatchEvent[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>(1);
   const [singleSpeechEnabled, setSingleSpeechEnabled] = useState(false);
+  const [speechPreferences, setSpeechPreferences] = useState<SpeechPreferences>({
+    voiceURI: AUTO_FEMALE_VOICE,
+    rate: 1.4,
+  });
+  const [speechPreferencesRestored, setSpeechPreferencesRestored] = useState(false);
+  const [speechVoices, setSpeechVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [multiMatchIds, setMultiMatchIds] = useState<string[]>([]);
   const [multiSpeechEnabled, setMultiSpeechEnabled] = useState<boolean[]>(
     () => Array.from({ length: 4 }, () => false),
@@ -585,11 +615,64 @@ export default function Home() {
   const toastSequence = useRef(0);
   const toastTimers = useRef<Map<number, number>>(new Map());
   const singleSpeechEnabledRef = useRef(singleSpeechEnabled);
+  const speechPreferencesRef = useRef(speechPreferences);
+  const speechVoicesRef = useRef(speechVoices);
   const singleTeamCodesRef = useRef({ blue: "蓝方", red: "红方" });
 
   useEffect(() => {
     singleSpeechEnabledRef.current = singleSpeechEnabled;
   }, [singleSpeechEnabled]);
+
+  useEffect(() => {
+    speechPreferencesRef.current = speechPreferences;
+  }, [speechPreferences]);
+
+  useEffect(() => {
+    speechVoicesRef.current = speechVoices;
+  }, [speechVoices]);
+
+  useEffect(() => {
+    const restoreTimer = window.setTimeout(() => {
+      try {
+        const saved = JSON.parse(
+          window.localStorage.getItem(SPEECH_PREFERENCES_STORAGE_KEY) ?? "null",
+        ) as Partial<SpeechPreferences> | null;
+        if (saved) {
+          setSpeechPreferences({
+            voiceURI: typeof saved.voiceURI === "string" ? saved.voiceURI : AUTO_FEMALE_VOICE,
+            rate: typeof saved.rate === "number" && saved.rate >= 1 && saved.rate <= 2
+              ? saved.rate
+              : 1.4,
+          });
+        }
+      } catch {
+        // Ignore outdated or blocked browser storage.
+      }
+      setSpeechPreferencesRestored(true);
+    }, 0);
+    if (!("speechSynthesis" in window)) {
+      return () => window.clearTimeout(restoreTimer);
+    }
+    const updateVoices = () => setSpeechVoices(window.speechSynthesis.getVoices());
+    updateVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", updateVoices);
+    return () => {
+      window.clearTimeout(restoreTimer);
+      window.speechSynthesis.removeEventListener("voiceschanged", updateVoices);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!speechPreferencesRestored) return;
+    try {
+      window.localStorage.setItem(
+        SPEECH_PREFERENCES_STORAGE_KEY,
+        JSON.stringify(speechPreferences),
+      );
+    } catch {
+      // Speech still works when browser storage is unavailable.
+    }
+  }, [speechPreferences, speechPreferencesRestored]);
 
   const selectedMatch = useMemo(
     () => events.find((event) => event.id === selectedMatchId),
@@ -665,7 +748,13 @@ export default function Home() {
     const id = ++toastSequence.current;
     setEventToasts((current) => [...current, { ...toast, id }].slice(-5));
     if (singleSpeechEnabledRef.current) {
-      speakEventToast(toast, singleTeamCodesRef.current.blue, singleTeamCodesRef.current.red);
+      speakEventToast(
+        toast,
+        singleTeamCodesRef.current.blue,
+        singleTeamCodesRef.current.red,
+        speechPreferencesRef.current,
+        speechVoicesRef.current,
+      );
     }
     const timer = window.setTimeout(() => {
       setEventToasts((current) =>
@@ -1068,6 +1157,57 @@ export default function Home() {
               {singleSpeechEnabled ? "语音通知开" : "语音通知关"}
             </button>
           )}
+          <details className="speech-settings">
+            <summary>声音设置</summary>
+            <div className="speech-settings-panel">
+              <label>
+                <span>播报声音</span>
+                <select
+                  onChange={(event) => setSpeechPreferences((current) => ({
+                    ...current,
+                    voiceURI: event.target.value,
+                  }))}
+                  value={speechVoices.some((voice) => voice.voiceURI === speechPreferences.voiceURI)
+                    || speechPreferences.voiceURI === AUTO_FEMALE_VOICE
+                    || speechPreferences.voiceURI === SYSTEM_VOICE
+                    ? speechPreferences.voiceURI
+                    : AUTO_FEMALE_VOICE}
+                >
+                  <option value={AUTO_FEMALE_VOICE}>优先中文女声</option>
+                  <option value={SYSTEM_VOICE}>系统默认</option>
+                  {speechVoices.map((voice) => (
+                    <option key={voice.voiceURI} value={voice.voiceURI}>
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>朗读速度 <strong>{speechPreferences.rate.toFixed(1)}×</strong></span>
+                <input
+                  max="2"
+                  min="1"
+                  onChange={(event) => setSpeechPreferences((current) => ({
+                    ...current,
+                    rate: Number(event.target.value),
+                  }))}
+                  step="0.1"
+                  type="range"
+                  value={speechPreferences.rate}
+                />
+              </label>
+              <button
+                onClick={() => {
+                  window.speechSynthesis?.cancel();
+                  speakText("语音测试，蓝方拿到一次击杀", speechPreferences, speechVoices);
+                }}
+                type="button"
+              >
+                试听
+              </button>
+              <p>可用声音由当前浏览器和设备提供。</p>
+            </div>
+          </details>
           <span className="last-sync">
             {viewMode === 1 ? (
               <>最后同步 <strong>{formatTimestamp(lastUpdated)}</strong></>
@@ -1244,7 +1384,9 @@ export default function Home() {
           onToggleSpeech={toggleMultiSpeech}
           refreshTick={multiRefreshTick}
           speechEnabled={multiSpeechEnabled}
-          slots={viewMode}
+          speechPreferences={speechPreferences}
+          speechVoices={speechVoices}
+          slots={viewMode === 4 ? 4 : 2}
         />
       ) : frame && selectedMatch ? (
         <>
@@ -1378,6 +1520,8 @@ function MultiMatchBoard({
   onToggleSpeech,
   refreshTick,
   speechEnabled,
+  speechPreferences,
+  speechVoices,
   slots,
 }: {
   autoRefresh: boolean;
@@ -1387,6 +1531,8 @@ function MultiMatchBoard({
   onToggleSpeech: (slot: number) => void;
   refreshTick: number;
   speechEnabled: boolean[];
+  speechPreferences: SpeechPreferences;
+  speechVoices: SpeechSynthesisVoice[];
   slots: 2 | 4;
 }) {
   return (
@@ -1432,6 +1578,8 @@ function MultiMatchBoard({
                 match={match}
                 refreshTick={refreshTick}
                 speechEnabled={speechEnabled[slot] ?? false}
+                speechPreferences={speechPreferences}
+                speechVoices={speechVoices}
                 toastPosition={
                   slot === 0
                     ? "top-left"
@@ -1474,6 +1622,8 @@ function MultiMatchCard({
   onToggleSpeech,
   refreshTick,
   speechEnabled,
+  speechPreferences,
+  speechVoices,
   toastPosition,
 }: {
   autoRefresh: boolean;
@@ -1482,6 +1632,8 @@ function MultiMatchCard({
   onToggleSpeech: () => void;
   refreshTick: number;
   speechEnabled: boolean;
+  speechPreferences: SpeechPreferences;
+  speechVoices: SpeechSynthesisVoice[];
   toastPosition: EventToastPosition;
 }) {
   const [windowData, setWindowData] = useState<WindowPayload | null>(null);
@@ -1499,6 +1651,8 @@ function MultiMatchCard({
   const toastSequence = useRef(0);
   const toastTimers = useRef<Map<number, number>>(new Map());
   const speechEnabledRef = useRef(speechEnabled);
+  const speechPreferencesRef = useRef(speechPreferences);
+  const speechVoicesRef = useRef(speechVoices);
   const teamCodesRef = useRef({
     blue: match.matchTeams[0]?.code ?? "蓝方",
     red: match.matchTeams[1]?.code ?? "红方",
@@ -1511,6 +1665,14 @@ function MultiMatchCard({
   useEffect(() => {
     speechEnabledRef.current = speechEnabled;
   }, [speechEnabled]);
+
+  useEffect(() => {
+    speechPreferencesRef.current = speechPreferences;
+  }, [speechPreferences]);
+
+  useEffect(() => {
+    speechVoicesRef.current = speechVoices;
+  }, [speechVoices]);
 
   const dismissEventToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
@@ -1551,7 +1713,13 @@ function MultiMatchCard({
         frameEventToasts(gameId, previous, next).forEach((toast) => {
           addEventToast(toast);
           if (speechEnabledRef.current) {
-            speakEventToast(toast, teamCodesRef.current.blue, teamCodesRef.current.red);
+            speakEventToast(
+              toast,
+              teamCodesRef.current.blue,
+              teamCodesRef.current.red,
+              speechPreferencesRef.current,
+              speechVoicesRef.current,
+            );
           }
         });
       }
