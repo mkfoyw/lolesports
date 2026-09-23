@@ -570,16 +570,21 @@ function speakText(
 
 function speakEventToast(
   toast: Omit<EventToast, "id">,
+  teamCodes: { blue: string; red: string },
   preferences: SpeechPreferences,
   voices: SpeechSynthesisVoice[],
   matchNumber?: number,
 ) {
   const teamLabel = toast.side === "blue"
-    ? "蓝方"
+    ? teamCodes.blue
     : toast.side === "red"
-      ? "红方"
-      : "本局比赛";
-  speakText(`${matchNumber ? `第${matchNumber}场，` : ""}${teamLabel}，${toast.title}`, preferences, voices);
+      ? teamCodes.red
+      : "比赛";
+  speakText(
+    `${matchNumber ? `第${matchNumber}场，` : ""}${eventKindLabel(toast.kind)}，${teamLabel}，${toast.title}。${toast.detail}`,
+    preferences,
+    voices,
+  );
 }
 
 export default function Home() {
@@ -750,12 +755,16 @@ export default function Home() {
     setEventToasts([]);
   }, []);
 
-  const addEventToast = useCallback((toast: Omit<EventToast, "id">) => {
+  const addEventToast = useCallback((
+    toast: Omit<EventToast, "id">,
+    teamCodes: { blue: string; red: string },
+  ) => {
     const id = ++toastSequence.current;
     setEventToasts((current) => [...current, { ...toast, id }].slice(-5));
     if (singleSpeechEnabledRef.current) {
       speakEventToast(
         toast,
+        teamCodes,
         speechPreferencesRef.current,
         speechVoicesRef.current,
       );
@@ -783,9 +792,17 @@ export default function Home() {
         return;
       }
 
-      frameEventToasts(gameId, previous, next).forEach(addEventToast);
+      const teamCodes = {
+        blue: selectedMatch?.matchTeams.find((team) =>
+          rawTeamId(team) === payload.gameMetadata.blueTeamMetadata.esportsTeamId,
+        )?.code ?? selectedMatch?.matchTeams[0]?.code ?? "蓝方",
+        red: selectedMatch?.matchTeams.find((team) =>
+          rawTeamId(team) === payload.gameMetadata.redTeamMetadata.esportsTeamId,
+        )?.code ?? selectedMatch?.matchTeams[1]?.code ?? "红方",
+      };
+      frameEventToasts(gameId, previous, next).forEach((toast) => addEventToast(toast, teamCodes));
     },
-    [addEventToast],
+    [addEventToast, selectedMatch],
   );
 
   const loadEvents = useCallback(async (targetDate: string) => {
@@ -1196,14 +1213,14 @@ export default function Home() {
                 disabled={chineseSpeechVoices.length === 0}
                 onClick={() => {
                   window.speechSynthesis?.cancel();
-                  speakText("语音测试，蓝方拿到一次击杀", speechPreferences, speechVoices);
+                  speakText("语音测试：KILL，SLY，拿到一次击杀。总击杀 1", speechPreferences, speechVoices);
                 }}
                 type="button"
               >
                 试听
               </button>
               <p>{chineseSpeechVoices.length
-                ? "仅列出当前设备提供的中文语音。"
+                ? "按通知文字顺序，用同一种声音朗读中英文。"
                 : "当前浏览器没有可用中文语音，请在系统中安装中文语音。"}</p>
             </div>
           </details>
@@ -1708,11 +1725,20 @@ function MultiMatchCard({
         new Date(next.rfc460Timestamp).getTime() >
           new Date(previous.rfc460Timestamp).getTime()
       ) {
+        const teamCodes = {
+          blue: match.matchTeams.find((team) =>
+            rawTeamId(team) === payload.gameMetadata.blueTeamMetadata.esportsTeamId,
+          )?.code ?? match.matchTeams[0]?.code ?? "蓝方",
+          red: match.matchTeams.find((team) =>
+            rawTeamId(team) === payload.gameMetadata.redTeamMetadata.esportsTeamId,
+          )?.code ?? match.matchTeams[1]?.code ?? "红方",
+        };
         frameEventToasts(gameId, previous, next).forEach((toast) => {
           addEventToast(toast);
           if (speechEnabledRef.current) {
             speakEventToast(
               toast,
+              teamCodes,
               speechPreferencesRef.current,
               speechVoicesRef.current,
               matchNumber,
@@ -1721,7 +1747,7 @@ function MultiMatchCard({
         });
       }
     },
-    [addEventToast, matchNumber],
+    [addEventToast, match, matchNumber],
   );
 
   const refresh = useCallback(async (gameId: string) => {
