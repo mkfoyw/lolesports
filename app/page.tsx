@@ -20,7 +20,6 @@ const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
 const VIEW_MODE_STORAGE_KEY = "rift-live-view-mode";
 const SPEECH_PREFERENCES_STORAGE_KEY = "rift-live-speech-preferences";
 const AUTO_FEMALE_VOICE = "auto-female";
-const SYSTEM_VOICE = "system";
 const FEMALE_VOICE_NAME = /ting.?ting|meijia|sin.?ji|hui.?hui|xiaoxiao|xiaoyi|xiaohan|xiaomeng|xiaoqiu|xiaoshuang|lili|yaoyao|yating|female|woman|女声/i;
 const LOL_WIKI_BASE_URL = "https://lol.fandom.com/wiki/";
 const TEAM_WIKI_SLUGS: Record<string, string> = {
@@ -550,33 +549,37 @@ function speakText(
     return;
   }
   const chineseVoices = voices.filter((voice) => /^zh([-_]|$)/i.test(voice.lang));
-  const voice = preferences.voiceURI === SYSTEM_VOICE
-    ? undefined
-    : preferences.voiceURI === AUTO_FEMALE_VOICE
-      ? chineseVoices.find((candidate) => FEMALE_VOICE_NAME.test(candidate.name))
-        ?? chineseVoices.find((candidate) => candidate.default)
-        ?? chineseVoices[0]
-      : voices.find((candidate) => candidate.voiceURI === preferences.voiceURI);
+  const mainlandVoices = chineseVoices.filter((voice) => /^zh[-_]CN$/i.test(voice.lang));
+  const automaticVoice = mainlandVoices.find((voice) => FEMALE_VOICE_NAME.test(voice.name))
+    ?? chineseVoices.find((voice) => FEMALE_VOICE_NAME.test(voice.name))
+    ?? mainlandVoices.find((voice) => voice.default)
+    ?? mainlandVoices[0]
+    ?? chineseVoices.find((voice) => voice.default)
+    ?? chineseVoices[0];
+  const voice = preferences.voiceURI === AUTO_FEMALE_VOICE
+    ? automaticVoice
+    : chineseVoices.find((candidate) => candidate.voiceURI === preferences.voiceURI)
+      ?? automaticVoice;
+  if (!voice) return;
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = voice?.lang ?? "zh-CN";
-  if (voice) utterance.voice = voice;
+  utterance.lang = voice.lang;
+  utterance.voice = voice;
   utterance.rate = preferences.rate;
   window.speechSynthesis.speak(utterance);
 }
 
 function speakEventToast(
   toast: Omit<EventToast, "id">,
-  blueTeamCode: string,
-  redTeamCode: string,
   preferences: SpeechPreferences,
   voices: SpeechSynthesisVoice[],
+  matchNumber?: number,
 ) {
-  const teamCode = toast.side === "blue"
-    ? blueTeamCode
+  const teamLabel = toast.side === "blue"
+    ? "蓝方"
     : toast.side === "red"
-      ? redTeamCode
+      ? "红方"
       : "本局比赛";
-  speakText(`${teamCode}，${toast.title}`, preferences, voices);
+  speakText(`${matchNumber ? `第${matchNumber}场，` : ""}${teamLabel}，${toast.title}`, preferences, voices);
 }
 
 export default function Home() {
@@ -617,7 +620,6 @@ export default function Home() {
   const singleSpeechEnabledRef = useRef(singleSpeechEnabled);
   const speechPreferencesRef = useRef(speechPreferences);
   const speechVoicesRef = useRef(speechVoices);
-  const singleTeamCodesRef = useRef({ blue: "蓝方", red: "红方" });
 
   useEffect(() => {
     singleSpeechEnabledRef.current = singleSpeechEnabled;
@@ -677,6 +679,10 @@ export default function Home() {
   const selectedMatch = useMemo(
     () => events.find((event) => event.id === selectedMatchId),
     [events, selectedMatchId],
+  );
+  const chineseSpeechVoices = useMemo(
+    () => speechVoices.filter((voice) => /^zh([-_]|$)/i.test(voice.lang)),
+    [speechVoices],
   );
 
   const changeViewMode = useCallback(
@@ -750,8 +756,6 @@ export default function Home() {
     if (singleSpeechEnabledRef.current) {
       speakEventToast(
         toast,
-        singleTeamCodesRef.current.blue,
-        singleTeamCodesRef.current.red,
         speechPreferencesRef.current,
         speechVoicesRef.current,
       );
@@ -1071,12 +1075,6 @@ export default function Home() {
   const redTeam = selectedMatch?.matchTeams.find(
     (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
   );
-  useEffect(() => {
-    singleTeamCodesRef.current = {
-      blue: blueTeam?.code ?? "蓝方",
-      red: redTeam?.code ?? "红方",
-    };
-  }, [blueTeam?.code, redTeam?.code]);
   const goldLead = frame
     ? Math.abs(frame.blueTeam.totalGold - frame.redTeam.totalGold)
     : 0;
@@ -1167,15 +1165,13 @@ export default function Home() {
                     ...current,
                     voiceURI: event.target.value,
                   }))}
-                  value={speechVoices.some((voice) => voice.voiceURI === speechPreferences.voiceURI)
+                  value={chineseSpeechVoices.some((voice) => voice.voiceURI === speechPreferences.voiceURI)
                     || speechPreferences.voiceURI === AUTO_FEMALE_VOICE
-                    || speechPreferences.voiceURI === SYSTEM_VOICE
                     ? speechPreferences.voiceURI
                     : AUTO_FEMALE_VOICE}
                 >
-                  <option value={AUTO_FEMALE_VOICE}>优先中文女声</option>
-                  <option value={SYSTEM_VOICE}>系统默认</option>
-                  {speechVoices.map((voice) => (
+                  <option value={AUTO_FEMALE_VOICE}>优先简体中文女声</option>
+                  {chineseSpeechVoices.map((voice) => (
                     <option key={voice.voiceURI} value={voice.voiceURI}>
                       {voice.name} ({voice.lang})
                     </option>
@@ -1197,6 +1193,7 @@ export default function Home() {
                 />
               </label>
               <button
+                disabled={chineseSpeechVoices.length === 0}
                 onClick={() => {
                   window.speechSynthesis?.cancel();
                   speakText("语音测试，蓝方拿到一次击杀", speechPreferences, speechVoices);
@@ -1205,7 +1202,9 @@ export default function Home() {
               >
                 试听
               </button>
-              <p>可用声音由当前浏览器和设备提供。</p>
+              <p>{chineseSpeechVoices.length
+                ? "仅列出当前设备提供的中文语音。"
+                : "当前浏览器没有可用中文语音，请在系统中安装中文语音。"}</p>
             </div>
           </details>
           <span className="last-sync">
@@ -1576,6 +1575,7 @@ function MultiMatchBoard({
                 autoRefresh={autoRefresh}
                 layout={slots === 2 ? "roster" : "compact"}
                 match={match}
+                matchNumber={slot + 1}
                 refreshTick={refreshTick}
                 speechEnabled={speechEnabled[slot] ?? false}
                 speechPreferences={speechPreferences}
@@ -1619,6 +1619,7 @@ function MultiMatchCard({
   autoRefresh,
   layout,
   match,
+  matchNumber,
   onToggleSpeech,
   refreshTick,
   speechEnabled,
@@ -1629,6 +1630,7 @@ function MultiMatchCard({
   autoRefresh: boolean;
   layout: "roster" | "compact";
   match: MatchEvent;
+  matchNumber: number;
   onToggleSpeech: () => void;
   refreshTick: number;
   speechEnabled: boolean;
@@ -1653,10 +1655,6 @@ function MultiMatchCard({
   const speechEnabledRef = useRef(speechEnabled);
   const speechPreferencesRef = useRef(speechPreferences);
   const speechVoicesRef = useRef(speechVoices);
-  const teamCodesRef = useRef({
-    blue: match.matchTeams[0]?.code ?? "蓝方",
-    red: match.matchTeams[1]?.code ?? "红方",
-  });
 
   useEffect(() => {
     gamesRef.current = match.match.games;
@@ -1715,16 +1713,15 @@ function MultiMatchCard({
           if (speechEnabledRef.current) {
             speakEventToast(
               toast,
-              teamCodesRef.current.blue,
-              teamCodesRef.current.red,
               speechPreferencesRef.current,
               speechVoicesRef.current,
+              matchNumber,
             );
           }
         });
       }
     },
-    [addEventToast],
+    [addEventToast, matchNumber],
   );
 
   const refresh = useCallback(async (gameId: string) => {
@@ -1858,12 +1855,6 @@ function MultiMatchCard({
   const redTeam = match.matchTeams.find(
     (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
   ) ?? match.matchTeams[1];
-  useEffect(() => {
-    teamCodesRef.current = {
-      blue: blueTeam?.code ?? "蓝方",
-      red: redTeam?.code ?? "红方",
-    };
-  }, [blueTeam?.code, redTeam?.code]);
   const selectedGame = match.match.games.find((game) => game.id === selectedGameId);
   const blueSeriesWins = blueTeam?.result?.gameWins ?? 0;
   const redSeriesWins = redTeam?.result?.gameWins ?? 0;
