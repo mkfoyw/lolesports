@@ -134,6 +134,7 @@ type EventToast = {
   title: string;
   detail: string;
 };
+type EventToastPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 type ViewMode = 1 | 2 | 4;
 type SavedMatchSelection = {
   singleMatchId: string;
@@ -390,11 +391,177 @@ function eventKindLabel(kind: EventToastKind) {
   )[kind];
 }
 
+function frameEventToasts(
+  gameId: string,
+  previous: WindowFrame,
+  next: WindowFrame,
+): Omit<EventToast, "id">[] {
+  const frameTime = `数据帧 ${formatTimestamp(next.rfc460Timestamp)}`;
+  const toasts: Omit<EventToast, "id">[] = [];
+  const inspectSide = (
+    side: "blue" | "red",
+    before: TeamFrame,
+    after: TeamFrame,
+  ) => {
+    const kills = after.totalKills - before.totalKills;
+    if (kills > 0) {
+      toasts.push({
+        gameId,
+        side,
+        kind: "kill",
+        title: kills === 1 ? "拿到一次击杀" : `连续拿到 ${kills} 次击杀`,
+        detail: `总击杀 ${after.totalKills} · ${frameTime}`,
+      });
+    }
+
+    const towers = after.towers - before.towers;
+    if (towers > 0) {
+      toasts.push({
+        gameId,
+        side,
+        kind: "tower",
+        title: towers === 1 ? "摧毁一座防御塔" : `摧毁 ${towers} 座防御塔`,
+        detail: `累计推塔 ${after.towers} · ${frameTime}`,
+      });
+    }
+
+    const barons = after.barons - before.barons;
+    if (barons > 0) {
+      toasts.push({
+        gameId,
+        side,
+        kind: "baron",
+        title: barons === 1 ? "拿下纳什男爵" : `连续拿下 ${barons} 条男爵`,
+        detail: `累计男爵 ${after.barons} · ${frameTime}`,
+      });
+    }
+
+    after.dragons.slice(before.dragons.length).forEach((dragon) => {
+      toasts.push({
+        gameId,
+        side,
+        kind: "dragon",
+        title: `拿下${objectiveLabel(dragon)}龙`,
+        detail: `累计地图龙 ${after.dragons.length} · ${frameTime}`,
+      });
+    });
+
+    const inhibitors = after.inhibitors - before.inhibitors;
+    if (inhibitors > 0) {
+      toasts.push({
+        gameId,
+        side,
+        kind: "inhibitor",
+        title:
+          inhibitors === 1
+            ? "摧毁一座召唤水晶"
+            : `摧毁 ${inhibitors} 座召唤水晶`,
+        detail: `累计水晶 ${after.inhibitors} · ${frameTime}`,
+      });
+    }
+  };
+
+  inspectSide("blue", previous.blueTeam, next.blueTeam);
+  inspectSide("red", previous.redTeam, next.redTeam);
+  if (previous.gameState !== "finished" && next.gameState === "finished") {
+    toasts.push({
+      gameId,
+      side: "neutral",
+      kind: "finished",
+      title: "本局数据已结束",
+      detail: frameTime,
+    });
+  }
+  return toasts;
+}
+
+function EventToastRegion({
+  blueTeamCode,
+  onDismiss,
+  position,
+  redTeamCode,
+  toasts,
+}: {
+  blueTeamCode?: string;
+  onDismiss: (id: number) => void;
+  position: EventToastPosition;
+  redTeamCode?: string;
+  toasts: EventToast[];
+}) {
+  return (
+    <section
+      aria-atomic="false"
+      aria-label="比赛事件通知"
+      aria-live="polite"
+      className={`event-toast-region toast-${position}`}
+    >
+      {toasts.map((toast) => {
+        const teamLabel =
+          toast.side === "blue"
+            ? blueTeamCode ?? "蓝方"
+            : toast.side === "red"
+              ? redTeamCode ?? "红方"
+              : "比赛";
+        return (
+          <article
+            className={`event-toast ${toast.side} ${toast.kind}`}
+            key={toast.id}
+            role="status"
+          >
+            <span className="event-toast-kind">{eventKindLabel(toast.kind)}</span>
+            <div className="event-toast-copy">
+              <strong>
+                <span>{teamLabel}</span>
+                {toast.title}
+              </strong>
+              <p>{toast.detail}</p>
+            </div>
+            <button
+              aria-label="关闭事件通知"
+              className="event-toast-close"
+              onClick={() => onDismiss(toast.id)}
+              type="button"
+            >
+              ×
+            </button>
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function speakEventToast(
+  toast: Omit<EventToast, "id">,
+  blueTeamCode: string,
+  redTeamCode: string,
+) {
+  if (
+    !("speechSynthesis" in window) ||
+    typeof SpeechSynthesisUtterance === "undefined"
+  ) {
+    return;
+  }
+  const teamCode = toast.side === "blue"
+    ? blueTeamCode
+    : toast.side === "red"
+      ? redTeamCode
+      : "本局比赛";
+  const utterance = new SpeechSynthesisUtterance(`${teamCode}，${toast.title}`);
+  utterance.lang = "zh-CN";
+  utterance.rate = 1.08;
+  window.speechSynthesis.speak(utterance);
+}
+
 export default function Home() {
   const [date, setDate] = useState(dateInShanghai);
   const [events, setEvents] = useState<MatchEvent[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>(1);
+  const [singleSpeechEnabled, setSingleSpeechEnabled] = useState(false);
   const [multiMatchIds, setMultiMatchIds] = useState<string[]>([]);
+  const [multiSpeechEnabled, setMultiSpeechEnabled] = useState<boolean[]>(
+    () => Array.from({ length: 4 }, () => false),
+  );
   const [multiRefreshTick, setMultiRefreshTick] = useState(0);
   const [selectedMatchId, setSelectedMatchId] = useState("");
   const [selectedGameId, setSelectedGameId] = useState("");
@@ -415,6 +582,12 @@ export default function Home() {
   const previousEventFrames = useRef<Record<string, WindowFrame>>({});
   const toastSequence = useRef(0);
   const toastTimers = useRef<Map<number, number>>(new Map());
+  const singleSpeechEnabledRef = useRef(singleSpeechEnabled);
+  const singleTeamCodesRef = useRef({ blue: "蓝方", red: "红方" });
+
+  useEffect(() => {
+    singleSpeechEnabledRef.current = singleSpeechEnabled;
+  }, [singleSpeechEnabled]);
 
   const selectedMatch = useMemo(
     () => events.find((event) => event.id === selectedMatchId),
@@ -467,6 +640,12 @@ export default function Home() {
     [],
   );
 
+  const toggleMultiSpeech = useCallback((slot: number) => {
+    setMultiSpeechEnabled((current) =>
+      current.map((enabled, index) => index === slot ? !enabled : enabled),
+    );
+  }, []);
+
   const dismissEventToast = useCallback((id: number) => {
     const timer = toastTimers.current.get(id);
     if (timer) window.clearTimeout(timer);
@@ -483,6 +662,9 @@ export default function Home() {
   const addEventToast = useCallback((toast: Omit<EventToast, "id">) => {
     const id = ++toastSequence.current;
     setEventToasts((current) => [...current, { ...toast, id }].slice(-5));
+    if (singleSpeechEnabledRef.current) {
+      speakEventToast(toast, singleTeamCodesRef.current.blue, singleTeamCodesRef.current.red);
+    }
     const timer = window.setTimeout(() => {
       setEventToasts((current) =>
         current.filter((currentToast) => currentToast.id !== id),
@@ -506,83 +688,7 @@ export default function Home() {
         return;
       }
 
-      const frameTime = `数据帧 ${formatTimestamp(next.rfc460Timestamp)}`;
-      const inspectSide = (
-        side: "blue" | "red",
-        before: TeamFrame,
-        after: TeamFrame,
-      ) => {
-        const kills = after.totalKills - before.totalKills;
-        if (kills > 0) {
-          addEventToast({
-            gameId,
-            side,
-            kind: "kill",
-            title: kills === 1 ? "拿到一次击杀" : `连续拿到 ${kills} 次击杀`,
-            detail: `总击杀 ${after.totalKills} · ${frameTime}`,
-          });
-        }
-
-        const towers = after.towers - before.towers;
-        if (towers > 0) {
-          addEventToast({
-            gameId,
-            side,
-            kind: "tower",
-            title: towers === 1 ? "摧毁一座防御塔" : `摧毁 ${towers} 座防御塔`,
-            detail: `累计推塔 ${after.towers} · ${frameTime}`,
-          });
-        }
-
-        const barons = after.barons - before.barons;
-        if (barons > 0) {
-          addEventToast({
-            gameId,
-            side,
-            kind: "baron",
-            title: barons === 1 ? "拿下纳什男爵" : `连续拿下 ${barons} 条男爵`,
-            detail: `累计男爵 ${after.barons} · ${frameTime}`,
-          });
-        }
-
-        after.dragons.slice(before.dragons.length).forEach((dragon) => {
-          const label = objectiveLabel(dragon);
-          addEventToast({
-            gameId,
-            side,
-            kind: "dragon",
-            title: `拿下${label}龙`,
-            detail: `累计地图龙 ${after.dragons.length} · ${frameTime}`,
-          });
-        });
-
-        const inhibitors = after.inhibitors - before.inhibitors;
-        if (inhibitors > 0) {
-          addEventToast({
-            gameId,
-            side,
-            kind: "inhibitor",
-            title:
-              inhibitors === 1
-                ? "摧毁一座召唤水晶"
-                : `摧毁 ${inhibitors} 座召唤水晶`,
-            detail: `累计水晶 ${after.inhibitors} · ${frameTime}`,
-          });
-        }
-      };
-
-      inspectSide("blue", previous.blueTeam, next.blueTeam);
-      inspectSide("red", previous.redTeam, next.redTeam);
-
-      if (previous.gameState !== "finished" && next.gameState === "finished") {
-        addEventToast({
-          gameId,
-          side: "neutral",
-          kind: "finished",
-          title: "本局数据已结束",
-          detail: frameTime,
-        });
-      }
+      frameEventToasts(gameId, previous, next).forEach(addEventToast);
     },
     [addEventToast],
   );
@@ -830,12 +936,12 @@ export default function Home() {
   }, [clearEventToasts, selectedMatch, scanLatestGame, viewMode]);
 
   useEffect(() => {
-    if (!autoRefresh || !selectedGameId) return;
+    if (!autoRefresh || !selectedGameId || viewMode !== 1) return;
     const interval = window.setInterval(() => {
       void refreshGame(selectedGameId, true);
     }, LIVE_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [autoRefresh, refreshGame, selectedGameId]);
+  }, [autoRefresh, refreshGame, selectedGameId, viewMode]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -874,6 +980,12 @@ export default function Home() {
   const redTeam = selectedMatch?.matchTeams.find(
     (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
   );
+  useEffect(() => {
+    singleTeamCodesRef.current = {
+      blue: blueTeam?.code ?? "蓝方",
+      red: redTeam?.code ?? "红方",
+    };
+  }, [blueTeam?.code, redTeam?.code]);
   const goldLead = frame
     ? Math.abs(frame.blueTeam.totalGold - frame.redTeam.totalGold)
     : 0;
@@ -902,49 +1014,15 @@ export default function Home() {
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
-      <section
-        aria-atomic="false"
-        aria-label="比赛事件通知"
-        aria-live="polite"
-        className="event-toast-region"
-      >
-        {eventToasts
-          .filter((toast) => toast.gameId === selectedGameId)
-          .map((toast) => {
-            const teamLabel =
-              toast.side === "blue"
-                ? blueTeam?.code ?? "蓝方"
-                : toast.side === "red"
-                  ? redTeam?.code ?? "红方"
-                  : "比赛";
-            return (
-              <article
-                className={`event-toast ${toast.side} ${toast.kind}`}
-                key={toast.id}
-                role="status"
-              >
-                <span className="event-toast-kind">
-                  {eventKindLabel(toast.kind)}
-                </span>
-                <div className="event-toast-copy">
-                  <strong>
-                    <span>{teamLabel}</span>
-                    {toast.title}
-                  </strong>
-                  <p>{toast.detail}</p>
-                </div>
-                <button
-                  aria-label="关闭事件通知"
-                  className="event-toast-close"
-                  onClick={() => dismissEventToast(toast.id)}
-                  type="button"
-                >
-                  ×
-                </button>
-              </article>
-            );
-          })}
-      </section>
+      {viewMode === 1 && (
+        <EventToastRegion
+          blueTeamCode={blueTeam?.code}
+          onDismiss={dismissEventToast}
+          position="top-right"
+          redTeamCode={redTeam?.code}
+          toasts={eventToasts.filter((toast) => toast.gameId === selectedGameId)}
+        />
+      )}
 
       <header className="topbar">
         <div className="brand">
@@ -978,6 +1056,16 @@ export default function Home() {
             <span className="pulse-dot" />
             {autoRefresh ? "1 秒自动刷新" : "自动刷新已暂停"}
           </button>
+          {viewMode === 1 && (
+            <button
+              aria-pressed={singleSpeechEnabled}
+              className={`single-speech-toggle ${singleSpeechEnabled ? "active" : ""}`}
+              onClick={() => setSingleSpeechEnabled((current) => !current)}
+              type="button"
+            >
+              {singleSpeechEnabled ? "语音通知开" : "语音通知关"}
+            </button>
+          )}
           <span className="last-sync">
             {viewMode === 1 ? (
               <>最后同步 <strong>{formatTimestamp(lastUpdated)}</strong></>
@@ -1151,7 +1239,9 @@ export default function Home() {
           events={events}
           matchIds={multiMatchIds}
           onSelectMatch={selectMultiMatch}
+          onToggleSpeech={toggleMultiSpeech}
           refreshTick={multiRefreshTick}
+          speechEnabled={multiSpeechEnabled}
           slots={viewMode}
         />
       ) : frame && selectedMatch ? (
@@ -1283,14 +1373,18 @@ function MultiMatchBoard({
   events,
   matchIds,
   onSelectMatch,
+  onToggleSpeech,
   refreshTick,
+  speechEnabled,
   slots,
 }: {
   autoRefresh: boolean;
   events: MatchEvent[];
   matchIds: string[];
   onSelectMatch: (slot: number, matchId: string) => void;
+  onToggleSpeech: (slot: number) => void;
   refreshTick: number;
+  speechEnabled: boolean[];
   slots: 2 | 4;
 }) {
   return (
@@ -1335,6 +1429,17 @@ function MultiMatchBoard({
                 layout={slots === 2 ? "roster" : "compact"}
                 match={match}
                 refreshTick={refreshTick}
+                speechEnabled={speechEnabled[slot] ?? false}
+                toastPosition={
+                  slot === 0
+                    ? "top-left"
+                    : slot === 1
+                      ? "top-right"
+                      : slot === 2
+                        ? "bottom-left"
+                        : "bottom-right"
+                }
+                onToggleSpeech={() => onToggleSpeech(slot)}
               />
             ) : (
               <button
@@ -1364,12 +1469,18 @@ function MultiMatchCard({
   autoRefresh,
   layout,
   match,
+  onToggleSpeech,
   refreshTick,
+  speechEnabled,
+  toastPosition,
 }: {
   autoRefresh: boolean;
   layout: "roster" | "compact";
   match: MatchEvent;
+  onToggleSpeech: () => void;
   refreshTick: number;
+  speechEnabled: boolean;
+  toastPosition: EventToastPosition;
 }) {
   const [windowData, setWindowData] = useState<WindowPayload | null>(null);
   const [detailsData, setDetailsData] = useState<DetailsPayload | null>(null);
@@ -1378,13 +1489,73 @@ function MultiMatchCard({
   const [lastUpdated, setLastUpdated] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [eventToasts, setEventToasts] = useState<EventToast[]>([]);
   const requestSequence = useRef(0);
   const refreshInFlight = useRef(false);
   const gamesRef = useRef(match.match.games);
+  const previousEventFrames = useRef<Record<string, WindowFrame>>({});
+  const toastSequence = useRef(0);
+  const toastTimers = useRef<Map<number, number>>(new Map());
+  const speechEnabledRef = useRef(speechEnabled);
+  const teamCodesRef = useRef({
+    blue: match.matchTeams[0]?.code ?? "蓝方",
+    red: match.matchTeams[1]?.code ?? "红方",
+  });
 
   useEffect(() => {
     gamesRef.current = match.match.games;
   }, [match.match.games]);
+
+  useEffect(() => {
+    speechEnabledRef.current = speechEnabled;
+  }, [speechEnabled]);
+
+  const dismissEventToast = useCallback((id: number) => {
+    const timer = toastTimers.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    toastTimers.current.delete(id);
+    setEventToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  const clearEventToasts = useCallback(() => {
+    toastTimers.current.forEach((timer) => window.clearTimeout(timer));
+    toastTimers.current.clear();
+    setEventToasts([]);
+  }, []);
+
+  const addEventToast = useCallback((toast: Omit<EventToast, "id">) => {
+    const id = ++toastSequence.current;
+    setEventToasts((current) => [...current, { ...toast, id }].slice(-5));
+    const timer = window.setTimeout(() => {
+      setEventToasts((current) =>
+        current.filter((currentToast) => currentToast.id !== id),
+      );
+      toastTimers.current.delete(id);
+    }, EVENT_TOAST_LIFETIME_MS);
+    toastTimers.current.set(id, timer);
+  }, []);
+
+  const inspectEventFrame = useCallback(
+    (gameId: string, payload: WindowPayload) => {
+      const next = payload.frames.at(-1);
+      if (!next) return;
+      const previous = previousEventFrames.current[gameId];
+      previousEventFrames.current[gameId] = next;
+      if (
+        previous &&
+        new Date(next.rfc460Timestamp).getTime() >
+          new Date(previous.rfc460Timestamp).getTime()
+      ) {
+        frameEventToasts(gameId, previous, next).forEach((toast) => {
+          addEventToast(toast);
+          if (speechEnabledRef.current) {
+            speakEventToast(toast, teamCodesRef.current.blue, teamCodesRef.current.red);
+          }
+        });
+      }
+    },
+    [addEventToast],
+  );
 
   const refresh = useCallback(async (gameId: string) => {
     if (!gameId || refreshInFlight.current) return;
@@ -1392,6 +1563,7 @@ function MultiMatchCard({
     try {
       const { windowPayload, detailsPayload } = await fetchLatestTelemetry(gameId);
       if (windowPayload?.frames.length) {
+        inspectEventFrame(gameId, windowPayload);
         setWindowData(windowPayload);
         setDetailsData(detailsPayload);
         setLastUpdated(new Date().toISOString());
@@ -1402,7 +1574,7 @@ function MultiMatchCard({
     } finally {
       refreshInFlight.current = false;
     }
-  }, []);
+  }, [inspectEventFrame]);
 
   const loadGame = useCallback(
     async (game: Game) => {
@@ -1412,6 +1584,8 @@ function MultiMatchCard({
       setWindowData(null);
       setDetailsData(null);
       setSelectedGameId(game.id);
+      delete previousEventFrames.current[game.id];
+      clearEventToasts();
       try {
         const payload = await fetchInitialWindow(game.id);
         if (requestSequence.current !== sequence) return;
@@ -1431,7 +1605,7 @@ function MultiMatchCard({
         if (requestSequence.current === sequence) setLoading(false);
       }
     },
-    [refresh],
+    [clearEventToasts, refresh],
   );
 
   const scanLatest = useCallback(async () => {
@@ -1441,6 +1615,8 @@ function MultiMatchCard({
     setWindowData(null);
     setDetailsData(null);
     setSelectedGameId("");
+    previousEventFrames.current = {};
+    clearEventToasts();
     try {
       for (const game of [...gamesRef.current].reverse()) {
         try {
@@ -1465,7 +1641,7 @@ function MultiMatchCard({
     } finally {
       if (requestSequence.current === sequence) setLoading(false);
     }
-  }, [refresh]);
+  }, [clearEventToasts, refresh]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void scanLatest(), 0);
@@ -1483,6 +1659,14 @@ function MultiMatchCard({
     );
     return () => window.clearInterval(interval);
   }, [autoRefresh, refresh, selectedGameId]);
+
+  useEffect(
+    () => () => {
+      toastTimers.current.forEach((timer) => window.clearTimeout(timer));
+      toastTimers.current.clear();
+    },
+    [],
+  );
 
   const frame = windowData?.frames.at(-1);
   const patch = patchForDataDragon(windowData?.gameMetadata.patchVersion);
@@ -1504,6 +1688,12 @@ function MultiMatchCard({
   const redTeam = match.matchTeams.find(
     (team) => rawTeamId(team) === redMetadata?.esportsTeamId,
   ) ?? match.matchTeams[1];
+  useEffect(() => {
+    teamCodesRef.current = {
+      blue: blueTeam?.code ?? "蓝方",
+      red: redTeam?.code ?? "红方",
+    };
+  }, [blueTeam?.code, redTeam?.code]);
   const selectedGame = match.match.games.find((game) => game.id === selectedGameId);
   const blueSeriesWins = blueTeam?.result?.gameWins ?? 0;
   const redSeriesWins = redTeam?.result?.gameWins ?? 0;
@@ -1525,6 +1715,13 @@ function MultiMatchCard({
 
   return (
     <article className={`multi-match-card ${frame ? "has-data" : "is-idle"}`}>
+      <EventToastRegion
+        blueTeamCode={blueTeam?.code}
+        onDismiss={dismissEventToast}
+        position={toastPosition}
+        redTeamCode={redTeam?.code}
+        toasts={eventToasts.filter((toast) => toast.gameId === selectedGameId)}
+      />
       <header className="multi-card-context">
         <span>{match.league.name}</span>
         <strong>{formatStartTime(match.startTime)}</strong>
@@ -1532,6 +1729,15 @@ function MultiMatchCard({
         <span className="multi-series-score">
           系列 {blueSeriesWins}–{redSeriesWins}
         </span>
+        <button
+          aria-pressed={speechEnabled}
+          className={`multi-speech-toggle ${speechEnabled ? "active" : ""}`}
+          onClick={onToggleSpeech}
+          title={speechEnabled ? "关闭本栏语音通知" : "开启本栏语音通知"}
+          type="button"
+        >
+          {speechEnabled ? "语音开" : "语音关"}
+        </button>
       </header>
 
       <div className="multi-scoreboard">
