@@ -20,6 +20,7 @@ const MAX_LIVE_WINDOW_DELAY_SECONDS = 480;
 const LIVE_WINDOW_DELAY_STEP_SECONDS = 10;
 const LIVE_WINDOW_SUCCESSFUL_POLLS_BEFORE_PROBE = 3;
 const LIVE_WINDOW_FALLBACK_OFFSETS_SECONDS = [0, 10, 30, 60, 120, 240, 420];
+const SCHEDULE_CACHE_PREFIX = "rift-live-events";
 const EVENT_TOAST_LIFETIME_MS = 7_000;
 const RESOURCE_SUMMARY_DELAY_MS = 10_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
@@ -180,6 +181,25 @@ function readSavedMatchSelection(date: string): SavedMatchSelection | null {
     };
   } catch {
     return null;
+  }
+}
+
+function readCachedEvents(date: string): MatchEvent[] {
+  try {
+    const raw = window.localStorage.getItem(`${SCHEDULE_CACHE_PREFIX}:${date}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (event): event is MatchEvent =>
+        Boolean(event) &&
+        typeof event === "object" &&
+        (event as MatchEvent).__typename === "EventMatch" &&
+        typeof (event as MatchEvent).id === "string" &&
+        Boolean((event as MatchEvent).match),
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -950,10 +970,13 @@ export default function Home() {
       const response = await fetch(`/api/events?date=${targetDate}`, {
         cache: "no-store",
       });
-      const payload = (await response.json()) as {
+      const payload = (await response.json().catch(() => null)) as {
         events?: MatchEvent[];
         error?: string;
-      };
+      } | null;
+      if (!payload) {
+        throw new Error(`赛程服务返回无效响应（HTTP ${response.status}），请稍后重试。`);
+      }
       if (!response.ok) throw new Error(payload.error || "无法读取赛事列表");
       const matches = (payload.events ?? [])
         .filter((event) => event.__typename === "EventMatch" && event.match)
@@ -963,6 +986,14 @@ export default function Home() {
         );
       const savedSelection = readSavedMatchSelection(targetDate);
       setEvents(matches);
+      try {
+        window.localStorage.setItem(
+          `${SCHEDULE_CACHE_PREFIX}:${targetDate}`,
+          JSON.stringify(matches),
+        );
+      } catch {
+        // The schedule remains usable if browser storage is unavailable.
+      }
       setMultiMatchIds((current) => {
         const currentContainsValidMatch = current.some((matchId) =>
           matches.some((match) => match.id === matchId),
@@ -1000,8 +1031,25 @@ export default function Home() {
       });
       setLoadedScheduleDate(targetDate);
     } catch (caught) {
-      setEvents([]);
-      setError(caught instanceof Error ? caught.message : "无法读取赛事列表");
+      const cached = readCachedEvents(targetDate);
+      if (cached.length) {
+        setEvents(cached);
+        const savedSelection = readSavedMatchSelection(targetDate);
+        setSelectedMatchId((current) => {
+          if (cached.some((match) => match.id === current)) return current;
+          const saved = [
+            savedSelection?.singleMatchId,
+            savedSelection?.multiMatchIds[0],
+            window.localStorage.getItem("rift-live-match"),
+          ].find((matchId) => matchId && cached.some((match) => match.id === matchId));
+          return saved ?? cached.find((match) => match.state === "inProgress")?.id ?? cached[0].id;
+        });
+        setLoadedScheduleDate(targetDate);
+        setError("赛程源暂时异常，正在显示此前缓存的赛程。");
+      } else {
+        setEvents([]);
+        setError(caught instanceof Error ? caught.message : "赛程服务暂时不可用，请稍后重试。");
+      }
     } finally {
       setScheduleLoading(false);
     }
