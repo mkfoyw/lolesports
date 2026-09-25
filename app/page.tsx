@@ -13,8 +13,13 @@ import type { ReactNode } from "react";
 const FEED_URL = "https://feed.lolesports.com/livestats/v1";
 const FEATURED_MATCH_ID = "116889604984157253";
 const LIVE_REFRESH_INTERVAL_MS = 1_000;
-// LiveStats rejects 10-second windows that end less than 220 seconds ago.
-const LIVE_WINDOW_OFFSETS_SECONDS = [240, 250, 270, 300, 360, 480];
+// Start aggressively, then learn the newest window LiveStats accepts.
+const MIN_LIVE_WINDOW_DELAY_SECONDS = 0;
+const INITIAL_LIVE_WINDOW_DELAY_SECONDS = MIN_LIVE_WINDOW_DELAY_SECONDS;
+const MAX_LIVE_WINDOW_DELAY_SECONDS = 480;
+const LIVE_WINDOW_DELAY_STEP_SECONDS = 10;
+const LIVE_WINDOW_SUCCESSFUL_POLLS_BEFORE_PROBE = 3;
+const LIVE_WINDOW_FALLBACK_OFFSETS_SECONDS = [0, 10, 30, 60, 120, 240, 420];
 const EVENT_TOAST_LIFETIME_MS = 7_000;
 const RESOURCE_SUMMARY_DELAY_MS = 10_000;
 const MATCH_SELECTION_STORAGE_PREFIX = "rift-live-selection";
@@ -40,6 +45,9 @@ const TEAM_WIKI_SLUGS: Record<string, string> = {
   TT: "ThunderTalk_Gaming",
   WE: "Team_WE",
 };
+
+let liveWindowDelaySeconds = INITIAL_LIVE_WINDOW_DELAY_SECONDS;
+let successfulLiveWindowPolls = 0;
 
 type TeamResult = { gameWins: number; outcome: "win" | "loss" | null };
 type MatchTeam = {
@@ -334,15 +342,55 @@ async function fetchDetails(gameId: string, startingTime: string) {
 
 async function fetchLatestTelemetry(gameId: string) {
   let lastError: unknown;
-  for (const secondsAgo of LIVE_WINDOW_OFFSETS_SECONDS) {
+  const baseDelay = liveWindowDelaySeconds;
+  const offsets = [...new Set(
+    LIVE_WINDOW_FALLBACK_OFFSETS_SECONDS.map((offset) =>
+      Math.min(MAX_LIVE_WINDOW_DELAY_SECONDS, baseDelay + offset),
+    ),
+  )];
+
+  for (const secondsAgo of offsets) {
     const startingTime = recentStartingTime(secondsAgo);
     try {
       const windowPayload = await fetchRecentWindow(gameId, startingTime);
       if (!windowPayload?.frames?.length) continue;
       const detailsPayload = await fetchDetails(gameId, startingTime);
+
+      if (secondsAgo > liveWindowDelaySeconds) {
+        // A fallback window worked, so remember it as the safe starting point.
+        liveWindowDelaySeconds = secondsAgo;
+        successfulLiveWindowPolls = 0;
+      } else {
+        successfulLiveWindowPolls += 1;
+        if (
+          successfulLiveWindowPolls >= LIVE_WINDOW_SUCCESSFUL_POLLS_BEFORE_PROBE &&
+          liveWindowDelaySeconds > MIN_LIVE_WINDOW_DELAY_SECONDS
+        ) {
+          liveWindowDelaySeconds = Math.max(
+            MIN_LIVE_WINDOW_DELAY_SECONDS,
+            liveWindowDelaySeconds - LIVE_WINDOW_DELAY_STEP_SECONDS,
+          );
+          successfulLiveWindowPolls = 0;
+        }
+      }
+
       return { windowPayload, detailsPayload };
     } catch (caught) {
       lastError = caught;
+      if (
+        caught instanceof Error &&
+        /window with end time less than|end time.*less than/i.test(caught.message)
+      ) {
+        // LiveStats reports this when the requested window is too recent.
+        liveWindowDelaySeconds = Math.min(
+          MAX_LIVE_WINDOW_DELAY_SECONDS,
+          Math.max(
+            liveWindowDelaySeconds,
+            secondsAgo + LIVE_WINDOW_DELAY_STEP_SECONDS,
+          ),
+        );
+        successfulLiveWindowPolls = 0;
+      }
     }
   }
   if (lastError) throw lastError;
