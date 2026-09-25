@@ -1,6 +1,6 @@
 # Rift Live
 
-一个无需 Riot API Key 的本地 LoL Esports 实时数据看板。
+一个 LoL Esports 实时数据看板。赛程优先使用 Riot LoL Esports Persisted API；本地开发时可通过 `LOLESPORTS_API_KEY` 配置自己的 API key。未配置时会回退到 LoL Esports 网站的公开 GraphQL 查询。
 
 ## 启动
 
@@ -12,6 +12,14 @@ npm run dev
 ```
 
 打开 [http://localhost:3000](http://localhost:3000)。
+
+若上游 GraphQL 返回 HTTP 526，可在 `.env.local` 中配置自己有权使用的 key：
+
+```text
+LOLESPORTS_API_KEY=你的 API key
+```
+
+Sites 生产环境需将同名变量设为 secret。该变量只由服务端读取，不会发送到浏览器。
 
 ## 功能
 
