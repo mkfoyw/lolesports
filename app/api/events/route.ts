@@ -72,11 +72,13 @@ export async function GET(request: Request) {
     try {
       payload = JSON.parse(responseText) as GraphQLResponse;
     } catch {
-      const error = upstream.status === 526
+      const isCloudflare526 =
+        upstream.status === 526 || /error code:\s*526/i.test(responseText);
+      const error = isCloudflare526
         ? "LoL Esports 上游连接失败（HTTP 526，源站 TLS 证书校验错误），请稍后重试。"
         : `LoL Esports 上游返回了无法解析的响应（HTTP ${upstream.status}），请稍后重试。`;
       return Response.json(
-        { error, code: `HTTP_${upstream.status}` },
+        { error, code: isCloudflare526 ? "HTTP_526" : `HTTP_${upstream.status}` },
         { status: 502, headers: { "cache-control": "no-store" } },
       );
     }
