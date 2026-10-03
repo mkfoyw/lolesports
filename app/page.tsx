@@ -1603,6 +1603,22 @@ export default function Home() {
         />
       ) : frame && selectedMatch ? (
         <>
+          <section className="dragon-line" aria-label="小龙记录">
+            <div>
+              <span>蓝方小龙</span>
+              <strong>
+                {frame.blueTeam.dragons.map(objectiveLabel).join(" · ") || "—"}
+              </strong>
+            </div>
+            <span className="dragon-divider">DRAGONS</span>
+            <div>
+              <span>红方小龙</span>
+              <strong>
+                {frame.redTeam.dragons.map(objectiveLabel).join(" · ") || "—"}
+              </strong>
+            </div>
+          </section>
+
           <section className="objective-grid" aria-label="地图资源">
             <div className="objective-card blue-objectives">
               <span>蓝方资源</span>
@@ -1639,22 +1655,6 @@ export default function Home() {
                 <Metric label="小龙" value={frame.redTeam.dragons.length} />
                 <Metric label="水晶" value={frame.redTeam.inhibitors} />
               </div>
-            </div>
-          </section>
-
-          <section className="dragon-line" aria-label="小龙记录">
-            <div>
-              <span>蓝方小龙</span>
-              <strong>
-                {frame.blueTeam.dragons.map(objectiveLabel).join(" · ") || "—"}
-              </strong>
-            </div>
-            <span className="dragon-divider">DRAGONS</span>
-            <div>
-              <span>红方小龙</span>
-              <strong>
-                {frame.redTeam.dragons.map(objectiveLabel).join(" · ") || "—"}
-              </strong>
             </div>
           </section>
 
