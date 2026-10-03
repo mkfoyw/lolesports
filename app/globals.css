@@ -861,7 +861,7 @@ footer {
 }
 
 .game-tabs {
-  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   display: flex;
   justify-content: center;
   min-height: 54px;
@@ -1641,7 +1641,6 @@ footer {
 .multi-game-tabs {
   align-items: stretch;
   border-bottom: 1px solid var(--line);
-  border-top: 1px solid var(--line);
   display: flex;
   justify-content: center;
   min-height: 36px;

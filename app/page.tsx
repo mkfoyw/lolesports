@@ -1495,6 +1495,31 @@ export default function Home() {
             </strong>
             <span>北京时间 {formatStartTime(selectedMatch.startTime)}</span>
           </div>
+          <nav className="game-tabs" aria-label="分局选择">
+            {selectedMatch.match.games.map((game) => (
+              <button
+                aria-current={selectedGameId === game.id ? "page" : undefined}
+                className={selectedGameId === game.id ? "active" : ""}
+                key={game.id}
+                onClick={() => void selectGame(game.id)}
+                type="button"
+              >
+                <span>G{game.number}</span>
+                <small>
+                  {availableGames.includes(game.id)
+                    ? selectedGameId === game.id
+                      ? frameIsStale
+                        ? "已停止"
+                        : "实时"
+                      : "有数据"
+                    : game.state.toLowerCase().includes("complete") ||
+                        game.state.toLowerCase().includes("finish")
+                      ? "待读取"
+                      : "未开始"}
+                </small>
+              </button>
+            ))}
+          </nav>
           <div className="scoreboard">
             <div className="hero-team blue-side">
               <div>
@@ -1557,31 +1582,7 @@ export default function Home() {
             </div>
           </div>
 
-          <nav className="game-tabs" aria-label="分局选择">
-            {selectedMatch.match.games.map((game) => (
-              <button
-                aria-current={selectedGameId === game.id ? "page" : undefined}
-                className={selectedGameId === game.id ? "active" : ""}
-                key={game.id}
-                onClick={() => void selectGame(game.id)}
-                type="button"
-              >
-                <span>G{game.number}</span>
-                <small>
-                  {availableGames.includes(game.id)
-                    ? selectedGameId === game.id
-                      ? frameIsStale
-                        ? "已停止"
-                        : "实时"
-                      : "有数据"
-                    : game.state.toLowerCase().includes("complete") ||
-                        game.state.toLowerCase().includes("finish")
-                      ? "待读取"
-                      : "未开始"}
-                </small>
-              </button>
-            ))}
-          </nav>
+
         </section>
       )}
 
@@ -1657,16 +1658,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="players-panel">
-            <header>
-              <div>
-                <span>PLAYERS</span>
-                <h2>选手实时状态</h2>
-              </div>
-              <p>
-                数据帧 {formatTimestamp(frame.rfc460Timestamp)} · 版本 {patch}
-              </p>
-            </header>
+          <section className="players-panel" aria-label="选手实时状态">
             <div className="single-rosters">
               <TeamRoster
                 code={blueTeam?.code ?? "蓝方"}
@@ -2147,6 +2139,32 @@ function MultiMatchCard({
         </button>
       </header>
 
+      <nav
+        aria-label={`${blueTeam?.code ?? "蓝方"} 对 ${redTeam?.code ?? "红方"} 分局选择`}
+        className="multi-game-tabs"
+      >
+        {match.match.games.map((game) => {
+          const normalizedState = game.state.toLowerCase();
+          const stateLabel = normalizedState.includes("progress")
+            ? "实时"
+            : normalizedState.includes("complete") || normalizedState.includes("finish")
+              ? "已结束"
+              : "未开始";
+          return (
+            <button
+              aria-current={selectedGameId === game.id ? "page" : undefined}
+              className={selectedGameId === game.id ? "active" : ""}
+              key={game.id}
+              onClick={() => void loadGame(game)}
+              type="button"
+            >
+              <strong>G{game.number}</strong>
+              <span>{selectedGameId === game.id && loading ? "读取中" : stateLabel}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       <div className="multi-scoreboard">
         <div className="multi-team blue">
           {blueTeam?.image && (
@@ -2205,31 +2223,7 @@ function MultiMatchCard({
         </div>
       </div>
 
-      <nav
-        aria-label={`${blueTeam?.code ?? "蓝方"} 对 ${redTeam?.code ?? "红方"} 分局选择`}
-        className="multi-game-tabs"
-      >
-        {match.match.games.map((game) => {
-          const normalizedState = game.state.toLowerCase();
-          const stateLabel = normalizedState.includes("progress")
-            ? "实时"
-            : normalizedState.includes("complete") || normalizedState.includes("finish")
-              ? "已结束"
-              : "未开始";
-          return (
-            <button
-              aria-current={selectedGameId === game.id ? "page" : undefined}
-              className={selectedGameId === game.id ? "active" : ""}
-              key={game.id}
-              onClick={() => void loadGame(game)}
-              type="button"
-            >
-              <strong>G{game.number}</strong>
-              <span>{selectedGameId === game.id && loading ? "读取中" : stateLabel}</span>
-            </button>
-          );
-        })}
-      </nav>
+
 
       {frame ? (
         <>
